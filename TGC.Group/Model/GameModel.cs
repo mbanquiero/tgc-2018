@@ -130,7 +130,7 @@ namespace TGC.Group.Model
 
             time = 0;
 
-            ESCENA.pos_en_ruta = 1000;
+            ESCENA.pos_en_ruta = 10;
             SHIP.updatePos();
 
         }
