@@ -1,5 +1,8 @@
+using Microsoft.DirectX.Direct3D;
 using Microsoft.DirectX.DirectInput;
+using System;
 using System.Drawing;
+using System.Windows.Forms;
 using TGC.Core.Direct3D;
 using TGC.Core.Example;
 using TGC.Core.Geometry;
@@ -7,6 +10,7 @@ using TGC.Core.Input;
 using TGC.Core.Mathematica;
 using TGC.Core.SceneLoader;
 using TGC.Core.Textures;
+using Effect = Microsoft.DirectX.Direct3D.Effect;
 
 namespace TGC.Group.Model
 {
@@ -18,6 +22,34 @@ namespace TGC.Group.Model
     /// </summary>
     public class GameModel : TgcExample
     {
+
+        public CScene ESCENA;
+        public CShip SHIP;
+        public float dist_cam = 50;
+        private Effect effect;
+        public float ftime; // frame time
+        private Surface g_pDepthStencil; // Depth-stencil buffer
+        private Surface g_pDepthStencilOld; // Depth-stencil buffer
+        private Texture g_pRenderTarget, g_pRenderTarget2, g_pRenderTarget3, g_pRenderTarget4, g_pRenderTarget5;
+
+        private VertexBuffer g_pVBV3D;
+        public bool mouseCaptured;
+        public Point mouseCenter;
+        private string MyShaderDir;
+
+        public bool paused;
+        public int tipo_camara = 0;
+        // camara fija
+        public TGCVector3 camara_LA = new TGCVector3(1000, 0, 0);
+        public TGCVector3 camara_LF = new TGCVector3(1000, 1000, 1000);
+        // chasing camera
+        public float chase_1 = 60;
+        public float chase_2 = 10;
+        public float chase_3 = 500;
+
+        public float time;
+        public bool camara_ready = false;
+
         /// <summary>
         ///     Constructor del juego.
         /// </summary>
@@ -30,142 +62,280 @@ namespace TGC.Group.Model
             Description = Game.Default.Description;
         }
 
-        //Caja que se muestra en el ejemplo.
-        private TGCBox Box { get; set; }
-
-        //Mesh de TgcLogo.
-        private TgcMesh Mesh { get; set; }
-
-        //Boleano para ver si dibujamos el boundingbox
-        private bool BoundingBox { get; set; }
-
-        /// <summary>
-        ///     Se llama una sola vez, al principio cuando se ejecuta el ejemplo.
-        ///     Escribir aquí todo el código de inicialización: cargar modelos, texturas, estructuras de optimización, todo
-        ///     procesamiento que podemos pre calcular para nuestro juego.
-        ///     Borrar el codigo ejemplo no utilizado.
-        /// </summary>
         public override void Init()
         {
-            //Device de DirectX para crear primitivas.
             var d3dDevice = D3DDevice.Instance.Device;
 
-            //Textura de la carperta Media. Game.Default es un archivo de configuracion (Game.settings) util para poner cosas.
-            //Pueden abrir el Game.settings que se ubica dentro de nuestro proyecto para configurar.
-            var pathTexturaCaja = MediaDir + Game.Default.TexturaCaja;
+            MyShaderDir = ShadersDir;
 
-            //Cargamos una textura, tener en cuenta que cargar una textura significa crear una copia en memoria.
-            //Es importante cargar texturas en Init, si se hace en el render loop podemos tener grandes problemas si instanciamos muchas.
-            var texture = TgcTexture.createTexture(pathTexturaCaja);
+            ESCENA = new CScene(MediaDir);
+            SHIP = new CShip(MediaDir , ESCENA);
 
-            //Creamos una caja 3D ubicada de dimensiones (5, 10, 5) y la textura como color.
-            var size = new TGCVector3(5, 10, 5);
-            //Construimos una caja según los parámetros, por defecto la misma se crea con centro en el origen y se recomienda así para facilitar las transformaciones.
-            Box = TGCBox.fromSize(size, texture);
-            //Posición donde quiero que este la caja, es común que se utilicen estructuras internas para las transformaciones.
-            //Entonces actualizamos la posición lógica, luego podemos utilizar esto en render para posicionar donde corresponda con transformaciones.
-            Box.Position = new TGCVector3(-25, 0, 0);
+            //Cargar Shader personalizado
+            string compilationErrors;
+            effect = Effect.FromFile(D3DDevice.Instance.Device, MyShaderDir + "shaders.fx",
+                null, null, ShaderFlags.PreferFlowControl, null, out compilationErrors);
+            if (effect == null)
+            {
+                throw new Exception("Error al cargar shader. Errores: " + compilationErrors);
+            }
+            //Configurar Technique dentro del shader
+            effect.Technique = "DefaultTechnique";
 
-            //Cargo el unico mesh que tiene la escena.
-            Mesh = new TgcSceneLoader().loadSceneFromFile(MediaDir + "LogoTGC-TgcScene.xml").Meshes[0];
-            //Defino una escala en el modelo logico del mesh que es muy grande.
-            Mesh.Scale = new TGCVector3(0.5f, 0.5f, 0.5f);
 
-            //Suelen utilizarse objetos que manejan el comportamiento de la camara.
-            //Lo que en realidad necesitamos gráficamente es una matriz de View.
-            //El framework maneja una cámara estática, pero debe ser inicializada.
-            //Posición de la camara.
-            var cameraPosition = new TGCVector3(0, 0, 125);
-            //Quiero que la camara mire hacia el origen (0,0,0).
-            var lookAt = TGCVector3.Empty;
-            //Configuro donde esta la posicion de la camara y hacia donde mira.
-            Camara.SetCamera(cameraPosition, lookAt);
-            //Internamente el framework construye la matriz de view con estos dos vectores.
-            //Luego en nuestro juego tendremos que crear una cámara que cambie la matriz de view con variables como movimientos o animaciones de escenas.
+            // para capturar el mouse
+            var focusWindows = D3DDevice.Instance.Device.CreationParameters.FocusWindow;
+            mouseCenter = focusWindows.PointToScreen(new Point(focusWindows.Width / 2, focusWindows.Height / 2));
+            mouseCaptured = false;
+            //Cursor.Hide();
+
+            // stencil
+            g_pDepthStencil = d3dDevice.CreateDepthStencilSurface(d3dDevice.PresentationParameters.BackBufferWidth,
+                d3dDevice.PresentationParameters.BackBufferHeight,
+                DepthFormat.D24S8, MultiSampleType.None, 0, true);
+            g_pDepthStencilOld = d3dDevice.DepthStencilSurface;
+            // inicializo el render target
+            g_pRenderTarget = new Texture(d3dDevice, d3dDevice.PresentationParameters.BackBufferWidth
+                , d3dDevice.PresentationParameters.BackBufferHeight, 1, Usage.RenderTarget,
+                Format.X8R8G8B8, Pool.Default);
+            g_pRenderTarget2 = new Texture(d3dDevice, d3dDevice.PresentationParameters.BackBufferWidth
+                , d3dDevice.PresentationParameters.BackBufferHeight, 1, Usage.RenderTarget,
+                Format.X8R8G8B8, Pool.Default);
+            g_pRenderTarget3 = new Texture(d3dDevice, d3dDevice.PresentationParameters.BackBufferWidth
+                , d3dDevice.PresentationParameters.BackBufferHeight, 1, Usage.RenderTarget,
+                Format.X8R8G8B8, Pool.Default);
+            g_pRenderTarget4 = new Texture(d3dDevice, d3dDevice.PresentationParameters.BackBufferWidth
+                , d3dDevice.PresentationParameters.BackBufferHeight, 1, Usage.RenderTarget,
+                Format.X8R8G8B8, Pool.Default);
+            g_pRenderTarget5 = new Texture(d3dDevice, d3dDevice.PresentationParameters.BackBufferWidth
+                , d3dDevice.PresentationParameters.BackBufferHeight, 1, Usage.RenderTarget,
+                Format.X8R8G8B8, Pool.Default);
+
+            // Resolucion de pantalla
+            effect.SetValue("screen_dx", d3dDevice.PresentationParameters.BackBufferWidth);
+            effect.SetValue("screen_dy", d3dDevice.PresentationParameters.BackBufferHeight);
+
+            CustomVertex.PositionTextured[] vertices =
+            {
+                new CustomVertex.PositionTextured(-1, 1, 1, 0, 0),
+                new CustomVertex.PositionTextured(1, 1, 1, 1, 0),
+                new CustomVertex.PositionTextured(-1, -1, 1, 0, 1),
+                new CustomVertex.PositionTextured(1, -1, 1, 1, 1)
+            };
+            //vertex buffer de los triangulos
+            g_pVBV3D = new VertexBuffer(typeof(CustomVertex.PositionTextured),
+                4, d3dDevice, Usage.Dynamic | Usage.WriteOnly,
+                CustomVertex.PositionTextured.Format, Pool.Default);
+            g_pVBV3D.SetData(vertices, 0, LockFlags.None);
+
+            time = 0;
+
+            ESCENA.pos_en_ruta = 1000;
+            SHIP.updatePos();
+
         }
 
-        /// <summary>
-        ///     Se llama en cada frame.
-        ///     Se debe escribir toda la lógica de computo del modelo, así como también verificar entradas del usuario y reacciones
-        ///     ante ellas.
-        /// </summary>
+
         public override void Update()
         {
             PreUpdate();
+            if (ElapsedTime <= 0 || ElapsedTime > 1000)
+                return;
 
-            //Capturar Input teclado
-            if (Input.keyPressed(Key.F))
+            // camara debug
+            if (tipo_camara == 3)
             {
-                BoundingBox = !BoundingBox;
-            }
+                TGCVector3 viewDir = camara_LA - camara_LF;
+                viewDir.Normalize();
+                TGCVector3 N = TGCVector3.Cross(viewDir, TGCVector3.Up);
+                N.Normalize();
+                TGCVector3 B = TGCVector3.Cross(viewDir, N);
+                B.Normalize();
 
-            //Capturar Input Mouse
-            if (Input.buttonUp(TgcD3dInput.MouseButtons.BUTTON_LEFT))
-            {
-                //Como ejemplo podemos hacer un movimiento simple de la cámara.
-                //En este caso le sumamos un valor en Y
-                Camara.SetCamera(Camara.Position + new TGCVector3(0, 10f, 0), Camara.LookAt);
-                //Ver ejemplos de cámara para otras operaciones posibles.
-
-                //Si superamos cierto Y volvemos a la posición original.
-                if (Camara.Position.Y > 300f)
+                if (Input.buttonDown(TgcD3dInput.MouseButtons.BUTTON_LEFT))
                 {
-                    Camara.SetCamera(new TGCVector3(Camara.Position.X, 0f, Camara.Position.Z), Camara.LookAt);
+                    float dx = Input.XposRelative * 0.05f;
+                    float dy = -Input.YposRelative * 0.1f;
+
+                    camara_LF.TransformCoordinate(TGCMatrix.Translation(-camara_LA) *
+                        TGCMatrix.RotationY(dx) * TGCMatrix.RotationAxis(N, dy) * TGCMatrix.Translation(camara_LA));
+                    camara_LF.Y += dy;
+
                 }
+
+                if (Input.buttonDown(TgcD3dInput.MouseButtons.BUTTON_MIDDLE))
+                {
+                    float dx = Input.XposRelative * 11.5f;
+                    float dy = -Input.YposRelative * 11.1f;
+                    camara_LF += N * dx + B * dy;
+                    camara_LA += N * dx + B * dy;
+
+                }
+
+                if (Input.WheelPos != 0)
+                {
+                    float ds = Input.WheelPos * 51.1f;
+                    camara_LF += viewDir * ds;
+                }
+
+
             }
+
+            if (ESCENA.pos_en_ruta > ESCENA.cant_ptos_ruta - 15)
+            {
+                ESCENA.pos_en_ruta = 10;
+                SHIP.updatePos();
+            }
+
+            if (Input.keyPressed(Key.NumPad1))
+                chase_1 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
+            if (Input.keyPressed(Key.NumPad2))
+                chase_2 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
+            if (Input.keyPressed(Key.NumPad3))
+                chase_3 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
+
+            if (Input.keyPressed(Key.C))
+                tipo_camara = (tipo_camara + 1) % 4;
+
+            if (Input.keyPressed(Key.P))
+                paused = !paused;
+
+            if (paused)
+                return;
+
+            if (Input.keyPressed(Key.M))
+            {
+                mouseCaptured = !mouseCaptured;
+                if (mouseCaptured)
+                    Cursor.Hide();
+                else
+                    Cursor.Show();
+            }
+
+            time += ElapsedTime;
+
+            // actualizo la nave
+            SHIP.Update(Input, ESCENA, ElapsedTime);
+
+            // actualizo la camara
+            TGCVector3 dirN = SHIP.P.dir;
+            TGCVector3 pos = SHIP.P.pos;
+            TGCVector3 Up = ESCENA.Normal[ESCENA.pos_en_ruta];
+            TGCVector3 Tg = ESCENA.Binormal[ESCENA.pos_en_ruta];
+
+
+            switch (tipo_camara)
+            {
+                default:
+                case 0:
+                    // chasing camara
+                    Camara.SetCamera(pos - dirN * chase_1 + Up * chase_2, pos + dirN * chase_3, Up);
+                    break;
+                case 1:
+                    // camara lateral
+                    Camara.SetCamera(pos- Tg * 100, pos, Up);
+                    break;
+                case 2:
+                    // camara superior
+                    Camara.SetCamera(pos- dirN * 10 + new TGCVector3(0, 250, 0), pos, dirN);
+                    break;
+
+                case 3:
+                    // camara fija
+                    Camara.SetCamera(camara_LF, camara_LA, TGCVector3.Up);
+                    break;
+
+            }
+
+            Camara.UpdateCamera(ElapsedTime);
 
             PostUpdate();
         }
 
-        /// <summary>
-        ///     Se llama cada vez que hay que refrescar la pantalla.
-        ///     Escribir aquí todo el código referido al renderizado.
-        ///     Borrar todo lo que no haga falta.
-        /// </summary>
         public override void Render()
         {
-            //Inicio el render de la escena, para ejemplos simples. Cuando tenemos postprocesado o shaders es mejor realizar las operaciones según nuestra conveniencia.
-            PreRender();
+            ClearTextures();
 
-            //Dibuja un texto por pantalla
-            DrawText.drawText("Con la tecla F se dibuja el bounding box.", 0, 20, Color.OrangeRed);
-            DrawText.drawText("Con clic izquierdo subimos la camara [Actual]: " + TGCVector3.PrintVector3(Camara.Position), 0, 30, Color.OrangeRed);
+            var device = D3DDevice.Instance.Device;
+            effect.Technique = "DefaultTechnique";
 
-            //Siempre antes de renderizar el modelo necesitamos actualizar la matriz de transformacion.
-            //Debemos recordar el orden en cual debemos multiplicar las matrices, en caso de tener modelos jerárquicos, tenemos control total.
-            Box.Transform = TGCMatrix.Scaling(Box.Scale) * TGCMatrix.RotationYawPitchRoll(Box.Rotation.Y, Box.Rotation.X, Box.Rotation.Z) * TGCMatrix.Translation(Box.Position);
-            //A modo ejemplo realizamos toda las multiplicaciones, pero aquí solo nos hacia falta la traslación.
-            //Finalmente invocamos al render de la caja
-            Box.Render();
+            // guardo el Render target anterior y seteo la textura como render target
+            var pOldRT = device.GetRenderTarget(0);
+            var pSurf = g_pRenderTarget.GetSurfaceLevel(0);
+            device.SetRenderTarget(0, pSurf);
+            // hago lo mismo con el depthbuffer, necesito el que no tiene multisampling
+            var pOldDS = device.DepthStencilSurface;
+            device.DepthStencilSurface = g_pDepthStencil;
 
-            //Cuando tenemos modelos mesh podemos utilizar un método que hace la matriz de transformación estándar.
-            //Es útil cuando tenemos transformaciones simples, pero OJO cuando tenemos transformaciones jerárquicas o complicadas.
-            Mesh.UpdateMeshTransform();
-            //Render del mesh
-            Mesh.Render();
+            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, Color.Black, 1.0f, 0);
+            device.BeginScene();
+            effect.SetValue("eyePosition", TGCVector3.Vector3ToFloat4Array(Camara.Position));
+            ESCENA.render(effect);
+            SHIP.Render(effect);
 
-            //Render de BoundingBox, muy útil para debug de colisiones.
-            if (BoundingBox)
+            // -------------------------------------
+            device.EndScene();
+            pSurf.Dispose();
+
+            // Ultima pasada vertical va sobre la pantalla pp dicha
+            device.SetRenderTarget(0, pOldRT);
+            device.DepthStencilSurface = g_pDepthStencilOld;
+            device.BeginScene();
+            //effect.Technique = "FrameCopy";
+            effect.Technique = "FrameMotionBlur";
+
+            device.VertexFormat = CustomVertex.PositionTextured.Format;
+            device.SetStreamSource(0, g_pVBV3D, 0);
+            effect.SetValue("g_RenderTarget", g_pRenderTarget);
+            effect.SetValue("g_RenderTarget2", g_pRenderTarget2);
+            effect.SetValue("g_RenderTarget3", g_pRenderTarget3);
+            effect.SetValue("g_RenderTarget4", g_pRenderTarget4);
+            effect.SetValue("g_RenderTarget5", g_pRenderTarget5);
+            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, Color.Black, 1.0f, 0);
+            effect.Begin(FX.None);
+            effect.BeginPass(0);
+            device.DrawPrimitives(PrimitiveType.TriangleStrip, 0, 2);
+            effect.EndPass();
+            effect.End();
+
+            DrawText.drawText("Tramo:" + ESCENA.pos_en_ruta, 440, 10, Color.Yellow);
+            //DrawText.drawText("pos_t :" + Math.Floor(ESCENA.pos_t * 100), 440, 325, Color.Yellow);
+            //DrawText.drawText("Y:" + Math.Floor(pos.Y), 440, 325, Color.Yellow);
+
+            DrawText.drawText("Daño :" + Math.Floor(ESCENA.cant_colisiones / 1000.0f) + "%", 10, 10, Color.Yellow);
+
+            RenderFPS();
+            //RenderAxis();
+            device.EndScene();
+            device.Present();
+
+            ftime += ElapsedTime;
+            if (ftime > 0.01f)
             {
-                Box.BoundingBox.Render();
-                Mesh.BoundingBox.Render();
+                ftime = 0;
+                var aux = g_pRenderTarget5;
+                g_pRenderTarget5 = g_pRenderTarget4;
+                g_pRenderTarget4 = g_pRenderTarget3;
+                g_pRenderTarget3 = g_pRenderTarget2;
+                g_pRenderTarget2 = g_pRenderTarget;
+                g_pRenderTarget = aux;
             }
-
-            //Finaliza el render y presenta en pantalla, al igual que el preRender se debe para casos puntuales es mejor utilizar a mano las operaciones de EndScene y PresentScene
-            PostRender();
         }
 
-        /// <summary>
-        ///     Se llama cuando termina la ejecución del ejemplo.
-        ///     Hacer Dispose() de todos los objetos creados.
-        ///     Es muy importante liberar los recursos, sobretodo los gráficos ya que quedan bloqueados en el device de video.
-        /// </summary>
         public override void Dispose()
         {
-            //Dispose de la caja.
-            Box.Dispose();
-            //Dispose del mesh.
-            Mesh.Dispose();
+            ESCENA.dispose();
+            SHIP.Dispose();
+            effect.Dispose();
+            g_pRenderTarget.Dispose();
+            g_pRenderTarget2.Dispose();
+            g_pRenderTarget3.Dispose();
+            g_pRenderTarget4.Dispose();
+            g_pRenderTarget5.Dispose();
+            g_pDepthStencil.Dispose();
+            g_pVBV3D.Dispose();
         }
+
     }
+
 }
