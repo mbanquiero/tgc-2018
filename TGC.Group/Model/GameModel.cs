@@ -43,12 +43,15 @@ namespace TGC.Group.Model
         public TGCVector3 camara_LA = new TGCVector3(1000, 0, 0);
         public TGCVector3 camara_LF = new TGCVector3(1000, 1000, 1000);
         // chasing camera
-        public float chase_1 = 60;
-        public float chase_2 = 10;
+        public float chase_1 = 160;
+        public float chase_2 = 20;
         public float chase_3 = 500;
 
         public float time;
         public bool camara_ready = false;
+
+        public TGCVector3 cam_la_vel = new TGCVector3(0, 0, 0);
+        public TGCVector3 cam_pos_vel = new TGCVector3(0, 0, 0);
 
         /// <summary>
         ///     Constructor del juego.
@@ -195,7 +198,7 @@ namespace TGC.Group.Model
                 chase_3 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
 
             if (Input.keyPressed(Key.C))
-                tipo_camara = (tipo_camara + 1) % 4;
+                tipo_camara = (tipo_camara + 1) % 5;
 
             if (Input.keyPressed(Key.P))
                 paused = !paused;
@@ -219,9 +222,11 @@ namespace TGC.Group.Model
 
             // actualizo la camara
             TGCVector3 dirN = SHIP.P.dir;
-            TGCVector3 pos = SHIP.P.pos;
             TGCVector3 Up = ESCENA.Normal[ESCENA.pos_en_ruta];
             TGCVector3 Tg = ESCENA.Binormal[ESCENA.pos_en_ruta];
+            //TGCVector3 pos = SHIP.P.pos;        // ESCENA.pos_central;
+            float s = 0.75f;
+            TGCVector3 pos = SHIP.P.pos * s + ESCENA.pos_central * (1-s);
 
 
             switch (tipo_camara)
@@ -229,7 +234,40 @@ namespace TGC.Group.Model
                 default:
                 case 0:
                     // chasing camara
-                    Camara.SetCamera(pos - dirN * chase_1 + Up * chase_2, pos + dirN * chase_3, Up);
+                    {
+                        pos = ESCENA.pos_central;
+                        TGCVector3 Desired_Pos = pos - dirN * chase_1 + Up * chase_2;
+                        TGCVector3 Desired_LookAt = pos + dirN * chase_3;
+
+                        TGCVector3 Pos;
+                        TGCVector3 LookAt;
+
+                        if (camara_ready)
+                        {
+                            cam_pos_vel = Desired_Pos - Camara.Position;
+                            cam_pos_vel.Normalize();
+                            cam_pos_vel *= 1000.0f;
+                            Pos = Camara.Position+ cam_pos_vel*ElapsedTime;
+                            cam_la_vel = Desired_LookAt - Camara.LookAt;
+                            cam_la_vel.Normalize();
+                            cam_la_vel *= 1200.0f;
+                            LookAt = Camara.LookAt+ cam_la_vel * ElapsedTime;
+                        }
+                        else
+                        {
+                            camara_ready = true;
+                            Pos = Desired_Pos;
+                            LookAt = Desired_LookAt;
+                        }
+
+
+
+                        /*float t = 0.5f;
+                        TGCVector3 Pos = Desired_Pos * t + Camara.Position * (1.0f - t);
+                        TGCVector3 LookAt = Desired_LookAt * t + Camara.LookAt* (1.0f - t);
+                        */
+                        Camara.SetCamera(Pos,LookAt, Up);
+                    }
                     break;
                 case 1:
                     // camara lateral
@@ -245,6 +283,12 @@ namespace TGC.Group.Model
                     Camara.SetCamera(camara_LF, camara_LA, TGCVector3.Up);
                     break;
 
+                case 4:
+                    // first pirson
+                    Camara.SetCamera(SHIP.P.pos, SHIP.P.pos + SHIP.P.dir, Up);
+                    break;
+
+
             }
 
             Camara.UpdateCamera(ElapsedTime);
@@ -258,6 +302,7 @@ namespace TGC.Group.Model
 
             var device = D3DDevice.Instance.Device;
             effect.Technique = "DefaultTechnique";
+            effect.SetValue("time", time);
 
             // guardo el Render target anterior y seteo la textura como render target
             var pOldRT = device.GetRenderTarget(0);
@@ -271,7 +316,9 @@ namespace TGC.Group.Model
             device.BeginScene();
             effect.SetValue("eyePosition", TGCVector3.Vector3ToFloat4Array(Camara.Position));
             ESCENA.render(effect);
-            SHIP.Render(effect);
+
+            if(tipo_camara!=4)
+                SHIP.Render(effect);
 
             // -------------------------------------
             device.EndScene();
@@ -301,6 +348,9 @@ namespace TGC.Group.Model
             DrawText.drawText("Tramo:" + ESCENA.pos_en_ruta, 440, 10, Color.Yellow);
             //DrawText.drawText("pos_t :" + Math.Floor(ESCENA.pos_t * 100), 440, 325, Color.Yellow);
             //DrawText.drawText("Y:" + Math.Floor(pos.Y), 440, 325, Color.Yellow);
+            //DrawText.drawText("chase_1=" + Math.Floor(chase_1), 440, 325, Color.Yellow);
+            //DrawText.drawText("chase_2=" + Math.Floor(chase_2), 440, 350, Color.Yellow);
+            //DrawText.drawText("chase_3=" + Math.Floor(chase_3), 440, 375, Color.Yellow);
 
             DrawText.drawText("Daño :" + Math.Floor(ESCENA.cant_colisiones / 1000.0f) + "%", 10, 10, Color.Yellow);
 

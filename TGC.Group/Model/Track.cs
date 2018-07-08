@@ -198,7 +198,7 @@ namespace TGC.Group.Model
 
         public void Render(Effect effect)
         {
-            int pr = T.pos_en_ruta-2;
+            int pr = T.pos_en_ruta-8;
 
             // verifico si el objeto esta dentro del conjunto ptencialmente visible 
             if (pr > fin)     // el objeto quedo atras en la ruta
@@ -845,6 +845,7 @@ namespace TGC.Group.Model
         public float []peralte = new float[MAX_POINTS];
         public float scaleXZ = 20;
         public float scaleY = 15;
+        public TGCVector3 pos_central = new TGCVector3(0,0,0);
 
         public CBaseTrack[] tracks = new CBaseTrack[MAX_TRACKS];
         int cant_tracks;
@@ -1077,13 +1078,43 @@ namespace TGC.Group.Model
             return rta;
         }
 
+        public void proyectar(TGCVector3 p, float desfH , int i ,
+            out float X, out float Z , out TGCVector3 p0,out TGCVector3 pc)
+        {
+            var dr = ancho_ruta / 2 - 50.0f;
+            var v = p - pt_ruta[i];
+            Z = TGCVector3.Dot(v, Tangent[i]);
+            X = TGCVector3.Dot(v, Binormal[i]);
+
+            if (X < -dr)
+            {
+                X = -dr;
+                // colision izquierda
+                tipo_colision = 2;
+                cant_colisiones++;
+            }
+
+            if (X > dr)
+            {
+                X = dr;
+                // colision derecha
+                tipo_colision = 1;
+                cant_colisiones++;
+            }
+
+            float dP = peralte[i] * (1 - (X + dr) / (2 * dr));
+            p0 = pt_ruta[i] + Tangent[i] * Z + Binormal[i] * X + Normal[i] * (desfH + dP);
+            pc = pt_ruta[i] + Tangent[i] * Z + Normal[i] * (desfH + dP);
+        }
+
+
         // busco la posicion mas cercana dentro de la pista
         public TGCVector3 updatePos(TGCVector3 p, float desfH)
         {
             tipo_colision = 0;
             var aux_tramo = -1;
             var mdist = -1f;
-            var dr = ancho_ruta / 2;
+            var dr = ancho_ruta / 2 - 50.0f;
             // busco el punto mas cercano en un entorno de pos_en_ruta
             for (var i = pos_en_ruta; i < pos_en_ruta + 15 && i < cant_ptos_ruta - 1; ++i)
             {
@@ -1100,6 +1131,8 @@ namespace TGC.Group.Model
                 int i = aux_tramo;
 
                 // interpolacion lineal
+
+
                 TGCVector3 q0 = pt_ruta[i - 1];
                 TGCVector3 q1 = pt_ruta[i];
                 TGCVector3 q2 = pt_ruta[i + 1];
@@ -1110,6 +1143,25 @@ namespace TGC.Group.Model
                     i = --aux_tramo;
                 }
 
+
+                proyectar(p, desfH, i, out float X0, out float Z0, out TGCVector3 p0, out TGCVector3 pc0);
+                float d0 = (pt_ruta[i] - p).LengthSq();
+
+                proyectar(p, desfH, i+1, out float X1, out float Z1, out TGCVector3 p1, out TGCVector3 pc1);
+                float d1 = (pt_ruta[i+1] - p).LengthSq();
+
+                float S = d0 + d1;
+                float k = d0 / S;
+                p = p0 * (1-k) + p1 * k;
+                pos_central = pc0 * (1-k) + pc1 * k;
+
+                float X = X0 * (1-k) + X1 * k;
+                float Z = Z0 * (1-k) + Z1 * k;
+
+
+
+
+                /*
                 // proyecto la posicion sobre el espacio de la ruta
                 var v = p - pt_ruta[i];
                 var Z = TGCVector3.Dot(v, Tangent[i]);
@@ -1129,11 +1181,16 @@ namespace TGC.Group.Model
                     tipo_colision = 1;
                     cant_colisiones++;
                 }
+
                 float dP = peralte[i] * (1 - (X + dr) / (2 * dr));
                 p = pt_ruta[i] + Tangent[i] * Z + Binormal[i] * X + Normal[i]* (desfH + dP);
+                pos_central = pt_ruta[i] + Tangent[i] * Z + Normal[i] * (desfH + dP);
+                */
+
 
                 // actualizo la posicion en ruta
                 pos_en_ruta = aux_tramo;
+
             }
             return p;
         }

@@ -13,6 +13,7 @@ float4x4 matWorldViewProj; //Matriz World * View * Projection
 float4x4 matInverseTransposeWorld; //Matriz Transpose(Invert(World))
 
 float3 eyePosition = float3(0.00, 0.00, -100.00);
+float time = 0;
 
 
 //Textura para DiffuseMap
@@ -169,6 +170,44 @@ technique DefaultTechnique
         PixelShader = compile ps_3_0 ps_main();
     }
 }
+
+
+VS_OUTPUT vs_fire(VS_INPUT Input)
+{
+    VS_OUTPUT Output = (VS_OUTPUT)0;
+
+	//Proyectar posicion
+    Output.Position = mul(Input.Position, matWorldViewProj);
+   
+	//Las Texcoord quedan igual
+    Output.Texcoord = Input.Texcoord + float2(0,time*100);
+
+    Output.Pos = Input.Position.xyz;
+   
+    return (Output);
+   
+}
+
+//Pixel Shader
+float4 ps_fire(float3 Texcoord : TEXCOORD0, float3 N : TEXCOORD1,
+	float3 Pos : TEXCOORD2) : COLOR0
+{
+	float4 fvBaseColor = tex2D(diffuseMap, Texcoord);
+	float k = 1.0 - (50.0 + Pos.x) / 100.0;
+	fvBaseColor.a *= k;
+	fvBaseColor.rgb += k*0.3;
+	return fvBaseColor;
+}
+
+technique Fire
+{
+    pass Pass_0
+    {
+        VertexShader = compile vs_3_0 vs_fire();
+        PixelShader = compile ps_3_0 ps_fire();
+    }
+}
+
 
 //Pixel Shader
 float4 ps_edge(float3 Texcoord : TEXCOORD0, float3 N : TEXCOORD1,

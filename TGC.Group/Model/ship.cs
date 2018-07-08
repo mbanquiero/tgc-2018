@@ -19,12 +19,13 @@ namespace TGC.Group.Model
         public TGCVector3 pos;
         public TGCVector3 dir;
         public TGCVector3 dirN = new TGCVector3(0, 0, 0);
-        public float speed = 100;
+        public float speed = 3000;
+        public float max_speed = 10000;
         public float yaw = 0;
         public float pitch = 0;
         public float roll = 0.5f;
         public float rotationSpeed = 0.0f;
-        public float desfH = 10;
+        public float desfH = 30;
         public float acel_angular = 0.0f;
         public float acel_lineal = 0.0f;
         public float muD = 0.0f;       // coef. de rozamiento dinamico
@@ -39,7 +40,8 @@ namespace TGC.Group.Model
             pos = S.pt_ruta[S.pos_en_ruta];
             dir = S.pt_ruta[S.pos_en_ruta + 1] - pos;
             dir.Normalize();
-            pos += S.Normal[S.pos_en_ruta] * desfH;
+            dirN = S.Normal[S.pos_en_ruta];
+            pos += dirN * desfH;
 
         }
 
@@ -101,6 +103,9 @@ namespace TGC.Group.Model
             rozamiento = speed * muD;
             speed -= rozamiento * ElapsedTime;
 
+            if (speed > max_speed)
+                speed = max_speed;
+
             // computo la velocidad y la posicion siguiente (pos deseada)
             TGCVector3 vel = dir * speed;
             TGCVector3 Desired_pos = pos + vel * ElapsedTime;
@@ -135,9 +140,10 @@ namespace TGC.Group.Model
     public class CShip
     {
         public TgcMesh mesh;
-        public TGCVector3 car_Scale = new TGCVector3(0.15f, 0.15f, 0.15f);
+        public TGCVector3 car_Scale = new TGCVector3(1,1,1) * 0.5f;
         public CScene S;
         public CSimpleShipPhysics P;
+        public TGCBox box;
 
         public CShip(string MediaDir, CScene pscene)
         {
@@ -146,6 +152,11 @@ namespace TGC.Group.Model
             var loader = new TgcSceneLoader();
             mesh = loader.loadSceneFromFile(MediaDir + "nave\\Swoop+Bike-TgcScene.xml").Meshes[0];
             mesh.AutoTransform = false;
+
+            box = TGCBox.fromExtremes(new TGCVector3(0, 0, 0), new TGCVector3(100, 40, 40),
+                TgcTexture.createTexture(MediaDir + "texturas\\plasma.png"));
+            box.AutoTransform = false;
+
         }
 
         public void updatePos()
@@ -162,13 +173,49 @@ namespace TGC.Group.Model
             // actualizo la posicion de la nave
             mesh.Transform = CalcularMatriz(P.pos, car_Scale, -P.dir, S.Normal[S.pos_en_ruta]);
 
+
         }
 
         public void Render(Microsoft.DirectX.Direct3D.Effect effect)
         {
+            var device = D3DDevice.Instance.Device;
+
             mesh.Effect = effect;
             mesh.Technique = "DefaultTechnique";
+            device.RenderState.AlphaBlendEnable = false;
             mesh.Render();
+
+            box.Effect = effect;
+            box.Technique = "Fire";
+
+            // los mesh importados de skp tienen 100 de tamaño normalizado, primero trabajo en el espacio normalizado
+            // del mesh y luego paso al worldspace con la misma matriz de la nave
+
+            float e = 1.0f + 2.0f * P.speed/ P.max_speed;
+            float dl = 50.0f + 50.0f* e;
+            TGCVector3[] T = new TGCVector3[11];
+            T[0] = new TGCVector3(dl, -5.0f, 0.0f);
+            T[1] = new TGCVector3(dl, -5.0f, -1.0f);
+            T[2] = new TGCVector3(dl, -5.0f, 1.0f);
+            T[3] = new TGCVector3(dl, -6.0f, -1.0f);
+            T[4] = new TGCVector3(dl, -4.0f, 1.0f);
+
+            T[5] = new TGCVector3(dl, -5.0f, 16.0f);
+            T[6] = new TGCVector3(dl, -5.0f, 16.0f - 0.3f);
+            T[7] = new TGCVector3(dl, -5.0f, 16.0f + 0.3f);
+
+            T[8] = new TGCVector3(dl, -5.0f, -16.0f);
+            T[9] = new TGCVector3(dl, -5.0f, -16.0f - 0.3f);
+            T[10] = new TGCVector3(dl, -5.0f, -16.0f + 0.3f);
+
+
+            for (int i = 0; i < 11; ++i)
+            {
+                box.Transform = TGCMatrix.Scaling(new TGCVector3(e, 0.1f, 0.1f)) *
+                            TGCMatrix.Translation(T[i]) * mesh.Transform;
+                device.RenderState.AlphaBlendEnable = true;
+                box.Render();
+            }
         }
 
         // helper
@@ -180,6 +227,45 @@ namespace TGC.Group.Model
             matWorld = matWorld * TGCMatrix.RotationY(-(float)Math.PI / 2.0f) 
                     * TGCMatrix.RotationYawPitchRoll(P.yaw, P.pitch, P.roll);
 
+
+            // determino la orientacion
+            var U = TGCVector3.Cross(VUP, Dir);
+            U.Normalize();
+            var V = TGCVector3.Cross(Dir, U);
+            V.Normalize();
+            TGCMatrix Orientacion = new TGCMatrix();
+            Orientacion.M11 = U.X;
+            Orientacion.M12 = U.Y;
+            Orientacion.M13 = U.Z;
+            Orientacion.M14 = 0;
+
+            Orientacion.M21 = V.X;
+            Orientacion.M22 = V.Y;
+            Orientacion.M23 = V.Z;
+            Orientacion.M24 = 0;
+
+            Orientacion.M31 = Dir.X;
+            Orientacion.M32 = Dir.Y;
+            Orientacion.M33 = Dir.Z;
+            Orientacion.M34 = 0;
+
+            Orientacion.M41 = 0;
+            Orientacion.M42 = 0;
+            Orientacion.M43 = 0;
+            Orientacion.M44 = 1;
+            matWorld = matWorld * Orientacion;
+
+            // traslado
+            matWorld = matWorld * TGCMatrix.Translation(Pos);
+            return matWorld;
+        }
+
+
+        public TGCMatrix CalcularMatriz2(TGCVector3 Pos, TGCVector3 Scale, TGCVector3 Dir, TGCVector3 VUP)
+        {
+            var matWorld = TGCMatrix.Scaling(Scale);
+            matWorld = matWorld * TGCMatrix.RotationY(-(float)Math.PI / 2.0f)
+                    * TGCMatrix.RotationYawPitchRoll(P.yaw, P.pitch, 0);
 
             // determino la orientacion
             var U = TGCVector3.Cross(VUP, Dir);
