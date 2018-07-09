@@ -10,7 +10,7 @@
 		<specular>[51.0,51.0,51.0,255.0]</specular>
 		<opacity>100.0</opacity>
 		<alphaBlendEnable>false</alphaBlendEnable>
-		<bitmap uvTiling='[1.0,1.0]' uvOffset='[0.0,0.0]'>clr10-17-61.bmp</bitmap>
+		<bitmap uvTiling='[1.0,1.0]' uvOffset='[0.0,0.0]'>13.png</bitmap>
 	</subM>
 	<subM name='mat_1' type='Standardmaterial'>
 		<ambient>[51.0,51.0,51.0,255.0]</ambient>
