@@ -2,6 +2,8 @@ using Microsoft.DirectX.Direct3D;
 using Microsoft.DirectX.DirectInput;
 using System;
 using System.Drawing;
+using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 using TGC.Core.Direct3D;
 using TGC.Core.Example;
@@ -29,18 +31,11 @@ namespace TGC.Group.Model
         public int color;		// Color
     };
 
-    /// <summary>
-    ///     Ejemplo para implementar el TP.
-    ///     Inicialmente puede ser renombrado o copiado para hacer más ejemplos chicos, en el caso de copiar para que se
-    ///     ejecute el nuevo ejemplo deben cambiar el modelo que instancia GameForm <see cref="Form.GameForm.InitGraphics()" />
-    ///     line 97.
-    /// </summary>
     public class GameModel : TgcExample
     {
 
         public CScene ESCENA;
-        public const int cant_players = 6;
-        public CShip [] PLAYERS = new CShip[cant_players];
+        public CShip SHIP;
         public float dist_cam = 50;
         private Effect effect;
         public float ftime; // frame time
@@ -70,9 +65,34 @@ namespace TGC.Group.Model
         public TGCVector3 cam_pos_vel = new TGCVector3(0, 0, 0);
 
 
+
         // interface 2d
         public Sprite sprite;
         public Microsoft.DirectX.Direct3D.Font font;
+        public Microsoft.DirectX.Direct3D.Font s_font;
+        public Microsoft.DirectX.Direct3D.Font c64_font;
+
+        // mi render loop
+        public float my_elapsed_time = 0;
+        public float my_time = 0;
+        public bool hay_render = false;
+        public int cant_frames = 0;
+        public float fps = 0;
+        public float desf_frmrate = 0;
+
+        public bool sound_ready = true;
+
+        // sonido
+        sndmng sound = new sndmng();
+        sndmng sound_out = new sndmng();
+
+        // maquina de estados
+        int m_state = 0;
+        int curr_file = 0;
+        string[] wav_files;
+        float timer_intro = 0;
+
+        public bool motion_blur = true;
 
 
         /// <summary>
@@ -85,6 +105,7 @@ namespace TGC.Group.Model
             Category = Game.Default.Category;
             Name = Game.Default.Name;
             Description = Game.Default.Description;
+
         }
 
         public override void Init()
@@ -93,22 +114,24 @@ namespace TGC.Group.Model
 
             MyShaderDir = ShadersDir;
 
-            ESCENA = new CScene(MediaDir);
-            for (int i = 0; i < cant_players; ++i)
-            {
-                PLAYERS[i] = new CShip(MediaDir, ESCENA, i==0? "nave\\Swoop+Bike-TgcScene.xml" : "nave\\Enemy-TgcScene.xml");
-                PLAYERS[i].P.keyboard_input = i == 0 ? true : false;
-                PLAYERS[i].P.speed = i == 0 ? 6000 : 3000 + i*300;
-                //PLAYERS[i].P.speed = i == 0 ? 100 : 100;
+            wav_files = Directory.GetFiles(MediaDir + "sound");
 
-                PLAYERS[i].P.pos_en_ruta = 10 + i * 35;
-                PLAYERS[i].updatePos();
-
-            }
-            ESCENA.player_one = PLAYERS[0];
-            ESCENA.PLAYERS = PLAYERS;
-            ESCENA.cant_players = cant_players;
-
+            //sound.Create(MediaDir + "sound\\smokeonthewater.wav");
+            //sound.Create(MediaDir + "sound\\rolemu_-_neogauge.wav");        // super dificl
+            //sound.Create(MediaDir + "sound\\rolem_-_Neoishiki.wav");            // buenisimo (dificil)
+            //sound.Create(MediaDir + "sound\\Azureflux_-_06_-_Kinetic_Sands.wav");
+            //sound.Create(MediaDir + "sound\\Azureflux_-_01_-_BOMB.wav");
+            //sound.Create(MediaDir + "sound\\Azureflux_-_02_-_Waves.wav");       // muy bueno, facil
+            //sound.Create(MediaDir + "sound\\Monplaisir_-_03_-_Level_0.wav");       
+            //sound.Create(MediaDir + "sound\\Monplaisir_-_04_-_Level_1.wav");           // monotono  
+            //sound.Create(MediaDir + "sound\\Monplaisir_-_05_-_Level_2.wav");           // monotono  
+            //sound.Create(MediaDir + "sound\\Monplaisir_-_06_-_Level_3.wav");  
+            //sound.Create(MediaDir + "sound\\Monplaisir_-_07_-_Level_4.wav");            // bueno
+            //sound.Create(MediaDir + "sound\\tecno1.wav");                         // dificil
+            //sound.Create(MediaDir + "sound\\ScoobyDooPaPa.wav");                         // interesante
+            //sound.Create(MediaDir + "sound\\highway intro.wav");                // se va de escala                 
+            //sound.Create(MediaDir + "sound\\Shook_Me_All_Night.wav");           // bajo volumen
+            //sound.Create(MediaDir + "sound\\ACDC.wav");           
 
 
             //Cargar Shader personalizado
@@ -171,17 +194,90 @@ namespace TGC.Group.Model
             time = 0;
 
             sprite = new Sprite(d3dDevice);
+            // ajusto las letras para que se vean mas o menos igual en todas las resoluciones. 
+            float kx = (float)d3dDevice.PresentationParameters.BackBufferWidth / 1366.0f;
+            float ky = (float)d3dDevice.PresentationParameters.BackBufferHeight / 768.0f;
+            float k = Math.Min(kx, ky);
+
             // Fonts
-            font = new Microsoft.DirectX.Direct3D.Font(d3dDevice, 24, 0, FontWeight.Light, 0, false, CharacterSet.Default,
+            font = new Microsoft.DirectX.Direct3D.Font(d3dDevice, (int)(24 *k), 0, FontWeight.Light, 0, false, CharacterSet.Default,
                     Precision.Default, FontQuality.Default, PitchAndFamily.DefaultPitch, "Lucida Console");
             font.PreloadGlyphs('0', '9');
             font.PreloadGlyphs('a', 'z');
             font.PreloadGlyphs('A', 'Z');
 
+            s_font = new Microsoft.DirectX.Direct3D.Font(d3dDevice, (int)(18 * k), 0, FontWeight.Light, 0, false, CharacterSet.Default,
+                    Precision.Default, FontQuality.Default, PitchAndFamily.DefaultPitch, "Lucida Console");
+            s_font.PreloadGlyphs('0', '9');
+            s_font.PreloadGlyphs('a', 'z');
+            s_font.PreloadGlyphs('A', 'Z');
+
+            c64_font = new Microsoft.DirectX.Direct3D.Font(d3dDevice, (int)(40*k),(int)(30*k), FontWeight.Light, 0, false, CharacterSet.Default,
+                    Precision.Default, FontQuality.Default, PitchAndFamily.DefaultPitch, "System");
+            c64_font.PreloadGlyphs('0', '9');
+            c64_font.PreloadGlyphs('a', 'z');
+            c64_font.PreloadGlyphs('A', 'Z');
 
         }
 
 
+        // inicializa el modo juego ppdicho (una vez que el jugador selecciono el wav
+        public void InitGame()
+        {
+            // esta en un thread aparte , aviso cuando termina
+            // cargo el WAV 
+            sound.Create(wav_files[curr_file]);
+            // genero la escena a partir del WAV
+            ESCENA = new CScene(MediaDir, sound.PCMBuffer, sound._cant_samples);
+            // el resto de la carga
+            ESCENA.player = SHIP = new CShip(MediaDir, ESCENA, "nave\\Swoop+Bike-TgcScene.xml");
+            SHIP.pos_en_ruta = 10;
+            // termino pongo el status en 2
+            m_state = 2;
+            timer_intro = 5;        // 5 segundos de intro antes de que arranque 
+
+        }
+
+
+        public void ProcessKeyboard()
+        {
+
+            switch (m_state)
+            {
+                case 0:
+                    // selecciona el wav
+                    if (Input.keyPressed(Key.DownArrow))
+                        curr_file++;
+                    else
+                    if (Input.keyPressed(Key.UpArrow))
+                        curr_file--;
+                    else
+                    if (Input.keyPressed(Key.Return))
+                    {
+                        // PASO AL MODO GAME
+                        m_state = 1;
+                        Thread newThread = new Thread(this.InitGame);
+                        newThread.Start();
+                    }
+                    break;
+                case 1:
+                    // loading....
+                    break;
+
+                case 2:
+                    // modo juego
+                    if (Input.keyPressed(Key.P))
+                        paused = !paused;
+                    if (Input.keyPressed(Key.M))
+                        motion_blur = !motion_blur;
+                    if (Input.keyPressed(Key.Escape))
+                        // vuelvo al modo seleccion
+                        m_state = 0;
+                    break;
+
+            }
+
+        }
 
 
         public override void Update()
@@ -189,155 +285,172 @@ namespace TGC.Group.Model
             PreUpdate();
             if (ElapsedTime <= 0 || ElapsedTime > 1000)
                 return;
-
-            // camara debug
-            if (tipo_camara == 3)
-            {
-                TGCVector3 viewDir = camara_LA - camara_LF;
-                viewDir.Normalize();
-                TGCVector3 N = TGCVector3.Cross(viewDir, TGCVector3.Up);
-                N.Normalize();
-                TGCVector3 B = TGCVector3.Cross(viewDir, N);
-                B.Normalize();
-
-                if (Input.buttonDown(TgcD3dInput.MouseButtons.BUTTON_LEFT))
-                {
-                    float dx = Input.XposRelative * 0.05f;
-                    float dy = -Input.YposRelative * 0.1f;
-
-                    camara_LF.TransformCoordinate(TGCMatrix.Translation(-camara_LA) *
-                        TGCMatrix.RotationY(dx) * TGCMatrix.RotationAxis(N, dy) * TGCMatrix.Translation(camara_LA));
-                    camara_LF.Y += dy;
-
-                }
-
-                if (Input.buttonDown(TgcD3dInput.MouseButtons.BUTTON_MIDDLE))
-                {
-                    float dx = Input.XposRelative * 11.5f;
-                    float dy = -Input.YposRelative * 11.1f;
-                    camara_LF += N * dx + B * dy;
-                    camara_LA += N * dx + B * dy;
-
-                }
-
-                if (Input.WheelPos != 0)
-                {
-                    float ds = Input.WheelPos * 51.1f;
-                    camara_LF += viewDir * ds;
-                }
-
-
-            }
-
-            CShip SHIP = PLAYERS[0];
-
-            if (SHIP.P.pos_en_ruta > ESCENA.cant_ptos_ruta - 15)
-            {
-                SHIP.P.pos_en_ruta = 10;
-                SHIP.updatePos();
-            }
-
-            if (Input.keyPressed(Key.NumPad1))
-                chase_1 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
-            if (Input.keyPressed(Key.NumPad2))
-                chase_2 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
-            if (Input.keyPressed(Key.NumPad3))
-                chase_3 += 10 * (Input.keyDown(Key.LeftShift) ? 1 : -1);
-
-            if (Input.keyPressed(Key.C))
-                tipo_camara = (tipo_camara + 1) % 5;
-
-            if (Input.keyPressed(Key.P))
-                paused = !paused;
+            ProcessKeyboard();
 
             if (paused)
                 return;
 
-            if (Input.keyPressed(Key.M))
+
+            // renderloop personalizado
+            hay_render = false;
+            float frame_rate = 1.0f / 60.0f;
+
+            my_elapsed_time += ElapsedTime;
+            if (my_elapsed_time < frame_rate - desf_frmrate)
+                return;
+            desf_frmrate += 0.1f*(my_elapsed_time - frame_rate);
+            ++cant_frames;
+            ElapsedTime = my_elapsed_time;
+            my_elapsed_time = 0;
+            hay_render = true;
+
+            my_time += ElapsedTime;
+            if (my_time>1)
             {
-                mouseCaptured = !mouseCaptured;
-                if (mouseCaptured)
-                    Cursor.Hide();
-                else
-                    Cursor.Show();
+                // recomputo los fps
+                fps = cant_frames / my_time;
+                my_time = 0;
+                cant_frames = 0;
             }
 
             time += ElapsedTime;
 
-            // actualizo la nave
-            for (int i = 0; i < cant_players; ++i)
-                PLAYERS[i].Update(Input, ESCENA, ElapsedTime);
-
-
-            // actualizo la camara
-            TGCVector3 dirN = SHIP.P.dir;
-            TGCVector3 Up = ESCENA.Normal[SHIP.P.pos_en_ruta];
-            TGCVector3 Tg = ESCENA.Binormal[SHIP.P.pos_en_ruta];
-            //TGCVector3 pos = SHIP.P.pos;        // ESCENA.pos_central;
-            float s = 0.75f;
-            TGCVector3 pos = SHIP.P.pos * s + SHIP.P.pos_central * (1-s);
-
-
-            switch (tipo_camara)
+            switch(m_state)
             {
-                default:
                 case 0:
-                    // chasing camara
+                    // selecciona el wav
+                    break;
+                case 1:
+                    // presentacion
+                    break;
+
+                case 2:
+                    // modo game
                     {
-                        pos = SHIP.P.pos_central;
-                        //pos = SHIP.P.pos;
-                        TGCVector3 Desired_Pos = pos - dirN * chase_1 + Up * chase_2;
-                        TGCVector3 Desired_LookAt = pos + dirN * chase_3;
+                           // intro? 
+                        if(timer_intro>0)
+                            timer_intro -= ElapsedTime;
 
-                        TGCVector3 Pos;
-                        TGCVector3 LookAt;
+                        // sonido
+                        sound.WaveOut();
 
-                        if (camara_ready)
+                        // actualizo la nave
+                        SHIP.Update(Input, ESCENA, ElapsedTime);
+                        // actualizo la camara
+                        Camara.SetCamera(SHIP.posC - SHIP.dir * 120.0f + SHIP.normal * 30.0f, SHIP.pos + SHIP.dir * 70.0f, SHIP.normal);
+                        Camara.UpdateCamera(ElapsedTime);
+
+                        // actualizo la escena
+                        ESCENA.Update(ElapsedTime);
+
+                        if (SHIP.colisiona)
                         {
-                            cam_pos_vel = Desired_Pos - Camara.Position;
-                            Pos = Camara.Position+ cam_pos_vel *0.1f;
-                            cam_la_vel = Desired_LookAt - Camara.LookAt;
-                            LookAt = Camara.LookAt+ cam_la_vel * 0.1f;
+
+                            if (sound_ready)
+                            {
+                                int index = SHIP.pos_en_ruta / ESCENA.pt_x_track;
+                                int freq_wav = ESCENA.sound_tracks[index];
+                                sound_out.Play(freq_wav, 500, 0.5f);
+                                sound_ready = false;
+                            }
                         }
                         else
                         {
-                            camara_ready = true;
-                            Pos = Desired_Pos;
-                            LookAt = Desired_LookAt;
+                            sound_ready = true;
                         }
-                        Camara.SetCamera(Pos,LookAt, Up);
                     }
                     break;
-                case 1:
-                    // camara lateral
-                    Camara.SetCamera(pos- Tg * 100, pos, Up);
-                    break;
-                case 2:
-                    // camara superior
-                    Camara.SetCamera(pos- dirN * 10 + new TGCVector3(0, 250, 0), pos, dirN);
-                    break;
-
-                case 3:
-                    // camara fija
-                    Camara.SetCamera(camara_LF, camara_LA, TGCVector3.Up);
-                    break;
-
-                case 4:
-                    // first pirson
-                    Camara.SetCamera(SHIP.P.pos, SHIP.P.pos + SHIP.P.dir, Up);
-                    break;
-
-
             }
-
-            Camara.UpdateCamera(ElapsedTime);
-
 
 
             PostUpdate();
         }
 
+
         public override void Render()
+        {
+            switch (m_state)
+            {
+                case 0:
+                    // selecciona el wav
+                    RenderGUI();
+                    break;
+
+                case 1:
+                    RenderLoading();
+                    break;
+
+                case 2:
+                    // modo game
+                    RenderScene();
+                    break;
+            }
+
+        }
+
+
+        public void RenderGUI()
+        {
+            ClearTextures();
+
+            var device = D3DDevice.Instance.Device;
+            var screen_dx = device.PresentationParameters.BackBufferWidth;
+            var screen_dy = device.PresentationParameters.BackBufferHeight;
+            effect.Technique = "DefaultTechnique";
+            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, Color.Black, 1.0f, 0);
+            device.BeginScene();
+            device.RenderState.ZBufferEnable = false;
+            device.RenderState.AlphaBlendEnable = true;
+            FillRect(50, 50, screen_dx-100, screen_dy-100, Color.FromArgb(128, 0, 0, 0));
+            FillTextS(100, 80, MediaDir + "sound", Color.White);
+            DrawLine(100, 100, screen_dx-100, 100, 2, Color.LightBlue);
+            curr_file = Math.Abs(curr_file % wav_files.Length);
+            for (int i=0;i< wav_files.Length; ++i)
+                if(i==curr_file)
+                    FillTextS(100, i * 20 + 110, "[]       "+Path.GetFileName(wav_files[i]), Color.Turquoise);
+                else
+                    FillTextS(100, i * 20 + 110, "[] "+ Path.GetFileName(wav_files[i]), Color.White);
+
+            FillTextS(screen_dx-100, screen_dy-20, "Use (Up) (Down) Key to Select the file - Enter to confirm", Color.Yellow , 2);
+
+            device.EndScene();
+            device.Present();
+
+        }
+
+
+        public void RenderLoading()
+        {
+            ClearTextures();
+
+            var device = D3DDevice.Instance.Device;
+            effect.Technique = "DefaultTechnique";
+            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, Color.Yellow , 1.0f, 0);
+            var screen_dx = device.PresentationParameters.BackBufferWidth;
+            var screen_dy = device.PresentationParameters.BackBufferHeight;
+            device.RenderState.ZBufferEnable = false;
+            device.RenderState.AlphaBlendEnable = true;
+            byte r = (byte)(time * 1000000000);
+            byte g = (byte)(time * 1000000);
+            byte b = (byte)(time * 1000);
+
+            FillRect(0, 0, screen_dx, screen_dy, Color.FromArgb(255,r,g,b));
+            Color clr = Color.FromArgb(255, 165, 165, 255);
+            FillRect(50, 50, screen_dx-50, screen_dy - 50, Color.FromArgb(255, 66 ,66 ,231));
+            FillTextWithFont(c64_font,screen_dx/2, 100, "**** COMMODORE 64 BASIC V2 ****", clr, 1);
+            FillTextWithFont(c64_font, screen_dx / 2, 150, "64 K RAM SYSTEM 38991 BASIC BYTES FREE", clr, 1);
+            FillTextWithFont(c64_font, 50, 200, "READY.", clr, 0);
+            FillRect(50, 232, 50+33,232+38, Math.Floor(time*3) % 2 == 0 ? Color.FromArgb(255, 66, 66, 231):clr);
+            device.BeginScene();
+            device.EndScene();
+            device.Present();
+
+        }
+
+
+
+        // renderiza la scena en el modo GAME
+        public void RenderScene()
         {
             ClearTextures();
 
@@ -353,16 +466,14 @@ namespace TGC.Group.Model
             var pOldDS = device.DepthStencilSurface;
             device.DepthStencilSurface = g_pDepthStencil;
 
-            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, Color.Black, 1.0f, 0);
+
+            device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, SHIP.colisiona ? Color.Yellow : Color.Black, 1.0f, 0);
             device.BeginScene();
             effect.SetValue("eyePosition", TGCVector3.Vector3ToFloat4Array(Camara.Position));
+
             ESCENA.render(effect);
-
-            if(tipo_camara!=4)
-                PLAYERS[0].Render(effect);
-
-            for(int i=1;i<cant_players;++i)
-                PLAYERS[i].Render(effect);
+            sound.render(effect, ESCENA, SHIP);
+            SHIP.Render(effect);
 
             // -------------------------------------
             device.EndScene();
@@ -372,8 +483,7 @@ namespace TGC.Group.Model
             device.SetRenderTarget(0, pOldRT);
             device.DepthStencilSurface = g_pDepthStencilOld;
             device.BeginScene();
-            //effect.Technique = "FrameCopy";
-            effect.Technique = "FrameMotionBlur";
+            effect.Technique = motion_blur ? "FrameMotionBlur" : "FrameCopy";
 
             device.VertexFormat = CustomVertex.PositionTextured.Format;
             device.SetStreamSource(0, g_pVBV3D, 0);
@@ -388,20 +498,7 @@ namespace TGC.Group.Model
             device.DrawPrimitives(PrimitiveType.TriangleStrip, 0, 2);
             effect.EndPass();
             effect.End();
-
-            //DrawText.drawText("Tramo:" + PLAYERS[0].P.pos_en_ruta, 440, 10, Color.Yellow);
-            //DrawText.drawText("pos_t :" + Math.Floor(ESCENA.pos_t * 100), 440, 325, Color.Yellow);
-            //DrawText.drawText("Y:" + Math.Floor(pos.Y), 440, 325, Color.Yellow);
-            //DrawText.drawText("chase_1=" + Math.Floor(chase_1), 440, 325, Color.Yellow);
-            //DrawText.drawText("chase_2=" + Math.Floor(chase_2), 440, 350, Color.Yellow);
-            //DrawText.drawText("chase_3=" + Math.Floor(chase_3), 440, 375, Color.Yellow);
-            //DrawText.drawText("Daño :" + Math.Floor(PLAYERS[0].P.cant_colisiones / 1000.0f) + "%", 10, 10, Color.Yellow);
-
-            //DrawText.drawText("SPEED: " + Math.Floor(PLAYERS[0].P.speed), 10, 10, Color.Yellow);
-
-            RenderFPS();
-            //RenderAxis();
-
+            
             // dibujo el scoreboard, tiempo, vidas, etc (y fps)
             RenderHUD();
 
@@ -409,7 +506,7 @@ namespace TGC.Group.Model
             device.Present();
 
             ftime += ElapsedTime;
-            if (ftime > 0.01f)
+            if (ftime > 0.02f)
             {
                 ftime = 0;
                 var aux = g_pRenderTarget5;
@@ -429,30 +526,27 @@ namespace TGC.Group.Model
 
             bool ant_zenable = device.RenderState.ZBufferEnable;
             device.RenderState.ZBufferEnable = false;
+            device.RenderState.AlphaBlendEnable= true;
 
-            //FillText(50, 50, "Speed =" + Math.Floor(PLAYERS[0].P.speed), Color.Yellow, true);
-            FillText(50, 10, "Tramo:" + PLAYERS[0].P.pos_en_ruta, Color.Red, false);
+            FillRect(0, 0, 2000, 50, Color.FromArgb(128, 0, 0, 0));
 
-            float x0 = 50;
-            float y0 = 50;
-            float dx = 500;
-            float dy = 50;
-            FillRect(x0, y0, x0 + dx, y0 + dy, Color.Beige);
-            float ptje = PLAYERS[0].P.speed / PLAYERS[0].P.max_speed;
-            float rango_1 = Math.Min(ptje, 0.5f);
-            float rango_2 = Math.Min(ptje, 0.75f);
-            float rango_3 = Math.Min(ptje, 0.95f);
+            FillText(30, 10, sound.wav_name, Color.White);
+            if (SHIP.score_total!=0)
+            {
+                int ptje = (int)(100.0f * (float)SHIP.score / (float)SHIP.score_total);
+                FillText(screen_dx - 10, 10, "Score: " + SHIP.score + " / " + SHIP.score_total+ 
+                    " ("+ptje+"%)", Color.White, 2);
+            }
 
-            FillRect(x0 + 5, y0 + 5, x0 + (dx - 10) * rango_3, y0 + dy - 5, Color.White);
-            FillRect(x0 + 5, y0 + 5, x0 + (dx - 10) * rango_2, y0 + dy - 5, Color.Red);
-            FillRect(x0 + 5, y0 + 5, x0 + (dx - 10) * rango_1, y0 + dy - 5, Color.Blue);
+            if(timer_intro>1)
+            {
+                FillRect(100, screen_dy / 2-100, screen_dx-100, screen_dy/2+100, Color.FromArgb(128, 0, 0, 0));
+                FillText(screen_dx / 2, screen_dy / 2 - 50, "Teclas <- ->  mover la nave", Color.White, 1);
+                FillText(screen_dx / 2, screen_dy / 2, "ESC -  Volver al menu    M-> Toogle Motion blur", Color.White, 1);
+                FillText(screen_dx / 2, screen_dy / 2 + 50, "Arranca en " + Math.Floor(timer_intro-1) + "s", Color.White, 1);
+            }
 
-            int puesto = 1;
-            for (int i = 1; i < cant_players; ++i)
-                if (PLAYERS[i].P.pos_en_ruta > PLAYERS[0].P.pos_en_ruta)
-                    ++puesto;
-            FillText(screen_dx - 300, 10, "PUESTO: " + puesto, Color.Red, false);
-
+            FillText(50, screen_dy - 30, "FPS:" + Math.Round(fps), Color.Yellow);
             device.RenderState.ZBufferEnable = ant_zenable;
 
         }
@@ -602,8 +696,16 @@ namespace TGC.Group.Model
             device.DrawUserPrimitives(PrimitiveType.TriangleList, 2, pt);
         }
 
+        public void FillText(int x, int y, string text, Color color, int center = 0)
+        {
+            FillTextWithFont(font, x, y, text, color, center);
+        }
+        public void FillTextS(int x, int y, string text, Color color, int center = 0)
+        {
+            FillTextWithFont(s_font, x, y, text, color, center);
+        }
 
-        public void FillText(int x, int y, string text, Color color, bool center = false)
+        public void FillTextWithFont(Microsoft.DirectX.Direct3D.Font p_font , int x, int y, string text, Color color, int center )
         {
             var device = D3DDevice.Instance.Device;
             var screen_dx = device.PresentationParameters.BackBufferWidth;
@@ -615,19 +717,31 @@ namespace TGC.Group.Model
             device.RenderState.ZBufferEnable = false;
             // pongo la matriz identidad
             Microsoft.DirectX.Matrix matAnt = sprite.Transform * Microsoft.DirectX.Matrix.Identity;
-            sprite.Transform = Microsoft.DirectX.Matrix.Identity;
+            sprite.Transform = Microsoft.DirectX.Matrix.Identity;                
             sprite.Begin(SpriteFlags.AlphaBlend);
-            if (center)
+            switch (center)
             {
-                Rectangle rc = new Rectangle(0, y, screen_dx, y + 100);
-                font.DrawText(sprite, text, rc, DrawTextFormat.Center, color);
-            }
-            else
-            {
-                Rectangle rc = new Rectangle(x, y, x + 600, y + 100);
-                font.DrawText(sprite, text, rc, DrawTextFormat.NoClip | DrawTextFormat.Top | DrawTextFormat.Left, color);
+                case 1:
+                    {
+                        Rectangle rc = new Rectangle(0, y, screen_dx, y + 100);
+                        p_font.DrawText(sprite, text, rc, DrawTextFormat.Center, color);
+                    }
+                    break;
+                case 2:
+                    {
+                        Rectangle rc = new Rectangle(x- screen_dx, y, x, y + 100);
+                        p_font.DrawText(sprite, text, rc, DrawTextFormat.NoClip | DrawTextFormat.Top | DrawTextFormat.Right, color);
+                    }
+                    break;
+                default:
+                    {
+                        Rectangle rc = new Rectangle(x, y, x + 600, y + 100);
+                        p_font.DrawText(sprite, text, rc, DrawTextFormat.NoClip | DrawTextFormat.Top | DrawTextFormat.Left, color);
+                    }
+                    break;
             }
             sprite.End();
+
             // Restauro el zbuffer
             device.RenderState.ZBufferEnable = ant_zenable;
             // Restauro la transformacion del sprite
@@ -636,11 +750,11 @@ namespace TGC.Group.Model
 
 
 
+
         public override void Dispose()
         {
             ESCENA.dispose();
-            for (int i = 0; i < cant_players; ++i)
-                PLAYERS[i].Dispose();
+            SHIP.Dispose();
             effect.Dispose();
             g_pRenderTarget.Dispose();
             g_pRenderTarget2.Dispose();

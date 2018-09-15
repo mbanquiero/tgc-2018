@@ -14,6 +14,105 @@ using TGC.Core.Shaders;
 namespace TGC.Group.Model
 {
 
+    public class CSoundBlock
+    {
+        public bool transparente = false;
+        public int ds;          // separacion (en puntos de la ruta)
+        public Microsoft.DirectX.Direct3D.Device device;
+        public CScene T;
+        public TGCVector3[] pt_ruta;
+        public TGCVector3[] Binormal;
+        public TGCVector3[] Normal;
+        public float dr;
+        public TGCBox box;
+        public float dx = 20;
+        public float dy = 10;
+        public float dz = 30;
+
+
+        public CSoundBlock(int sep, CScene pT)
+        {
+            T = pT;
+            pt_ruta = T.pt_ruta;
+            Binormal = T.Binormal;
+            Normal = T.Normal;
+            dr = T.ancho_ruta / 2;
+            ds = sep;
+            device = D3DDevice.Instance.Device;
+
+            box = new TGCBox();
+            box.Size = new TGCVector3(dx,dy,dz);
+            box.Position = new TGCVector3(0, 0, 0); 
+            box.Color = Color.BurlyWood;
+
+            box.updateValues();
+
+        }
+
+
+        public virtual void Render(Effect effect)
+        {
+            int pr = T.player.pos_en_ruta - 8;
+            if (pr < 0)
+                return;
+
+            TGCVector3 p0 = new TGCVector3(0, 0, 0);
+
+            box.Effect = effect;
+            box.Technique  = "EdgeCube";
+            effect.Technique = "EdgeCube";
+            effect.SetValue("cube_color", TGCVector3.Vector3ToFloat4Array(new TGCVector3(0, 0.5f, 1)));
+
+
+
+            float dr2 = dr - 27;
+            int index = pr / T.pt_x_track;
+            for (int t = 0; t < 20 && index < T.cant_sound_tracks; ++t)
+            {
+                int i = index * T.pt_x_track;
+                TGCVector3 Eje_x = -Binormal[i];
+                TGCVector3 Eje_y = Normal[i];
+                TGCVector3 Eje_z = T.Tangent[i];
+                int freq = T.sound_tracks[index];
+                float X;
+                if (freq <= 0)
+                    X = -10000;
+                else
+                {
+                    float s = (freq - 100.0f) / 340.0f;  // 0..1
+                    X = (2 * dr2) * s - dr2;
+                }
+                p0 = pt_ruta[i] + Eje_x * (X - dx / 2) - Eje_z * (dz / 2);
+
+                TGCMatrix matRot = new TGCMatrix();
+                matRot.M11 = Eje_x.X;   matRot.M12 = Eje_y.X;   matRot.M13 = Eje_z.X;   matRot.M14 = 0;
+                matRot.M21 = Eje_x.Y;   matRot.M22 = Eje_y.Y;   matRot.M23 = Eje_z.Y;   matRot.M24 = 0;
+                matRot.M31 = Eje_x.Z;   matRot.M32 = Eje_y.Z;   matRot.M33 = Eje_z.Z;   matRot.M34 = 0;
+                matRot.M41 = 0;         matRot.M42 = 0;         matRot.M43 = 0;         matRot.M44 = 1;
+                TGCMatrix matEsc = TGCMatrix.Scaling(
+                    T.player.colisiona && T.cur_block_index == index ? new TGCVector3(2, 2, 2) : new TGCVector3(1, 1, 1));
+
+
+                TGCVector3 desf = new TGCVector3(0,(float)Math.Sin(T.time*30 + index),0) * 1.0f;
+                TGCMatrix matWorld = TGCMatrix.Translation(new TGCVector3(dx/2, dy / 2, dz / 2) ) * 
+                    matEsc * TGCMatrix.Translation(desf)  * TGCMatrix.TransposeMatrix(matRot) * TGCMatrix.Translation(p0);
+
+                box.Transform = matWorld;
+                box.Render();
+                
+                ++index;
+            }
+
+            // el box.render algo caga con las transformaciones.... tengo que hacer esto para recuperarlo
+            box.Transform = TGCMatrix.Identity;
+            box.Render();
+
+        }
+
+    }
+
+
+
     public class CSkyBox
     {
         Microsoft.DirectX.Direct3D.Device device;
@@ -38,7 +137,7 @@ namespace TGC.Group.Model
             vb = new VertexBuffer(typeof(CustomVertex.PositionTextured), totalVertices, D3DDevice.Instance.Device,
                 Usage.Dynamic | Usage.WriteOnly, CustomVertex.PositionTextured.Format, Pool.Default);
 
-            float ep = 0.005f;
+            float ep = 0.001f;
             CustomVertex.PositionTextured[] data = new CustomVertex.PositionTextured[totalVertices];
             float[,] v = {
                 {-1, -1, -1, 0.25f+ep, 1.0f / 3.0f +ep},      //v0
@@ -144,7 +243,6 @@ namespace TGC.Group.Model
         public TGCVector3[] pt_ruta;
         public TGCVector3[] Binormal;
         public TGCVector3[] Normal;
-        public float[] peralte;
         public float dr;
         public int dataIdx;
 
@@ -162,7 +260,6 @@ namespace TGC.Group.Model
             pt_ruta = T.pt_ruta;
             Binormal = T.Binormal;
             Normal = T.Normal;
-            peralte = T.peralte;
             dr = T.ancho_ruta/2;
             cant_items = cant;
             ds = sep;
@@ -196,9 +293,9 @@ namespace TGC.Group.Model
         {
         }
 
-        public void Render(Effect effect)
+        public virtual void Render(Effect effect)
         {
-            int pr = T.player_one.P.pos_en_ruta-8;
+            int pr = T.player.pos_en_ruta-8;
 
             // verifico si el objeto esta dentro del conjunto ptencialmente visible 
             if (pr > fin)     // el objeto quedo atras en la ruta
@@ -258,68 +355,19 @@ namespace TGC.Group.Model
 
     }
 
-
-
-    public class CCartel : CBaseTrack
+    
+    public class CGlowRing : CBaseTrack
     {
-        public CCartel()
-        {
-            cant_v = 12;      // cantidad de vertices x item
-            tx_fname = "cartel3.png";
-            transparente = true;
-        }
-
-        public static new CCartel Create(int cant, int pinicio, int sep, CScene pT)
-        {
-            CCartel obj = new CCartel();
-            obj.Init(cant, pinicio, sep, pT);
-            return obj;
-        }
-
-        public override void FillVertexBuffer(int t, CustomVertex.PositionNormalTextured[] data)
-        {
-            var i = inicio + t * ds;
-            TGCVector3 p0, p1, p2, p3;
-            p0 = pt_ruta[i] - Binormal[i] * (dr - 10) + Normal[i] * (peralte[i] + 30);
-            p1 = pt_ruta[i] - Binormal[i] * (dr - 30) + Normal[i] * (peralte[i] + 70);
-            p2 = pt_ruta[i + 4] - Binormal[i + 4] * (dr - 10) + Normal[i + 4] * (peralte[i + 4] + 30);
-            p3 = pt_ruta[i + 4] - Binormal[i + 4] * (dr - 30) + Normal[i + 4] * (peralte[i + 4] + 70);
-
-            TGCVector3 N = new TGCVector3(0, 1, 0);
-
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p1, N, 1, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p2, N, 0, 1);
-
-            p0 = pt_ruta[i] + Binormal[i] * (dr - 10) + Normal[i] * (30);
-            p1 = pt_ruta[i] + Binormal[i] * (dr - 30) + Normal[i] * (70);
-            p2 = pt_ruta[i + 4] + Binormal[i + 4] * (dr - 10) + Normal[i + 4] * (30);
-            p3 = pt_ruta[i + 4] + Binormal[i + 4] * (dr - 30) + Normal[i + 4] * (70);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0,N, 0, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p1, N, 1, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
-            data[dataIdx++] = new CustomVertex.PositionNormalTextured(p2, N, 0, 1);
-        }
-
-    }
-
-    public class CPuente : CBaseTrack
-    {
-        public CPuente()
+        public CGlowRing()
         {
             cant_v = 6;      // cantidad de vertices x item
-            tx_fname = "puente.png";
+            tx_fname = "";
             transparente = true;
         }
 
-        public static new CPuente Create(int cant, int pinicio, int sep, CScene pT)
+        public static new CGlowRing Create(int cant, int pinicio, int sep, CScene pT)
         {
-            CPuente obj = new CPuente();
+            CGlowRing obj = new CGlowRing();
             obj.Init(cant, pinicio, sep, pT);
             return obj;
         }
@@ -328,10 +376,10 @@ namespace TGC.Group.Model
         {
             var i = inicio + t * ds;
             TGCVector3 p0, p1, p2, p3;
-            p0 = pt_ruta[i] - Binormal[i] * (dr + 160) - Normal[i] * 50;
-            p1 = pt_ruta[i] - Binormal[i] * (dr + 160) + Normal[i] * 180;
-            p2 = pt_ruta[i] + Binormal[i] * (dr + 160) - Normal[i] * 50;
-            p3 = pt_ruta[i] + Binormal[i] * (dr + 160) + Normal[i] * 180;
+            p0 = pt_ruta[i] - Binormal[i] * (dr + 50) - Normal[i] * 30;
+            p1 = pt_ruta[i] - Binormal[i] * (dr + 50) + Normal[i] * 120;
+            p2 = pt_ruta[i] + Binormal[i] * (dr + 50) - Normal[i] * 30;
+            p3 = pt_ruta[i] + Binormal[i] * (dr + 50) + Normal[i] * 120;
             TGCVector3 N = new TGCVector3(0, 1, 0);
             data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 1);
             data[dataIdx++] = new CustomVertex.PositionNormalTextured(p1, N, 0, 0);
@@ -341,29 +389,39 @@ namespace TGC.Group.Model
             data[dataIdx++] = new CustomVertex.PositionNormalTextured(p2, N, 1, 1);
         }
 
+        public override void SetTextures(Effect effect)
+        {
+            effect.Technique = "GlowRing";
+            effect.SetValue("texDiffuseMap", textura);
+        }
+
     }
 
 
     public class CGuardRail : CBaseTrack
     {
         public float ancho_guarray = 5;
-        public float alto_guarray = 30;
+        public float alto_guarray = 50;
         public float Kr = 0.05f;
         public float KBN = 1;
         public float KP = 1;
+        public TGCVector3 color;
+        public TGCVector3 shader_param;
 
 
         public CGuardRail()
         {
             cant_v = 6;      // cantidad de vertices x item
-            tx_fname = "guardrail3.png";
+            tx_fname = "";
             transparente = true;
         }
 
-        public static CGuardRail Create(int cant, int pinicio, int sep, CScene pT, bool izq)
+        public static CGuardRail Create(int cant, int pinicio, int sep, CScene pT, bool izq, TGCVector3 color, TGCVector3 shader_param )
         {
             CGuardRail obj = new CGuardRail();
             obj.Init(cant, pinicio, sep, pT,izq);
+            obj.color = color;
+            obj.shader_param = shader_param;
             return obj;
         }
 
@@ -378,10 +436,10 @@ namespace TGC.Group.Model
         public override void FillVertexBuffer(int t, CustomVertex.PositionNormalTextured[] data)
         {
             var i = inicio + t;
-            var p0 = pt_ruta[i] - Binormal[i]* KBN * dr + Normal[i] * peralte[i] * KP;
-            var p1 = pt_ruta[i] - Binormal[i] * KBN * (dr + ancho_guarray) + Normal[i] * (peralte[i] * KP + alto_guarray);
-            var p2 = pt_ruta[i+1] - Binormal[i+1] * KBN * dr + Normal[i+1] * peralte[i+1] * KP;
-            var p3 = pt_ruta[i+1] - Binormal[i] * KBN * (dr + ancho_guarray) + Normal[i+1] * (peralte[i+1] * KP + alto_guarray);
+            var p0 = pt_ruta[i] - Binormal[i]* KBN * dr;
+            var p1 = pt_ruta[i] - Binormal[i] * KBN * (dr + ancho_guarray) + Normal[i] * alto_guarray;
+            var p2 = pt_ruta[i+1] - Binormal[i+1] * KBN * dr;
+            var p3 = pt_ruta[i+1] - Binormal[i] * KBN * (dr + ancho_guarray) + Normal[i+1] * alto_guarray;
             TGCVector3 N = new TGCVector3(0, 1, 0);
 
             data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, i * Kr, 0);
@@ -394,6 +452,15 @@ namespace TGC.Group.Model
 
         }
 
+        public override void SetTextures(Effect effect)
+        {
+            effect.SetValue("cube_color", TGCVector3.Vector3ToFloat4Array(color));
+            effect.SetValue("gl_k0", shader_param.X);
+            effect.SetValue("gl_k1", shader_param.Y);
+            effect.SetValue("gl_k2", shader_param.Z);
+            effect.Technique = "GlowLines";
+        }
+
     }
 
 
@@ -403,8 +470,8 @@ namespace TGC.Group.Model
         public CPiso()
         {
             cant_v = 6;      // cantidad de vertices x item
-            tx_fname = "f1piso4.png";
-            transparente = false;
+            tx_fname = "";
+            transparente = true;
         }
 
         public static new CPiso Create(int cant, int pinicio, int sep, CScene pT)
@@ -419,9 +486,9 @@ namespace TGC.Group.Model
             var i = inicio + t;
             var Kr = 0.05f;
 
-            var p0 = pt_ruta[i] - Binormal[i] * dr + Normal[i] * peralte[i];
+            var p0 = pt_ruta[i] - Binormal[i] * dr;
             var p1 = pt_ruta[i] + Binormal[i] * dr;
-            var p2 = pt_ruta[i+1] - Binormal[i + 1] * dr + Normal[i+1] * peralte[i+1];
+            var p2 = pt_ruta[i+1] - Binormal[i + 1] * dr;
             var p3 = pt_ruta[i + 1] + Binormal[i + 1] * dr;
 
             TGCVector3 N = new TGCVector3(0, 1, 0);
@@ -436,32 +503,41 @@ namespace TGC.Group.Model
 
         }
 
+        public override void SetTextures(Effect effect)
+        {
+            effect.Technique = "Piso";
+        }
+
+
     }
 
 
-    public class CCubos : CBaseTrack
+    public class CBaseCubo : CBaseTrack
     {
-        public int cubosxpt = 10;
+        public int cubosxpt = 2;
         public TGCVector3 color;
+        public TGCVector3 size;
         public Random rnd;
-        public CCubos()
+        public CBaseCubo()
         {
-            cant_v = 36 * cubosxpt;      // cantidad de vertices x item
             tx_fname = "";
             rnd = new Random();
             transparente = false;
         }
 
-        public void Init(int cant, int pinicio, int sep, CScene pT, TGCVector3 pcolor)
+        public void Init(int cant_cubos, int cant, int pinicio, int sep, CScene pT, TGCVector3 pcolor , TGCVector3 psize)
         {
+            cubosxpt = cant_cubos;          // cantidad de cubos por punto 
+            cant_v = 36 * cubosxpt;      // cantidad de vertices x item
             color = pcolor;
+            size = psize;
             Init(cant, pinicio, sep, pT);
         }
 
-        public static CCubos Create(int cant, int pinicio, int sep, CScene pT,TGCVector3 pcolor)
+        public static CBaseCubo Create(int cant_cubos, int cant, int pinicio, int sep, CScene pT,TGCVector3 pcolor, TGCVector3 psize)
         {
-            CCubos obj = new CCubos();
-            obj.Init(cant, pinicio, sep, pT,pcolor);
+            CBaseCubo obj = new CBaseCubo();
+            obj.Init(cant_cubos,cant, pinicio, sep, pT,pcolor,psize);
             return obj;
         }
 
@@ -536,33 +612,34 @@ namespace TGC.Group.Model
 
         public virtual void que_puntos(int i,int j,TGCVector3 []pt) 
         {
-            var dx = rnd.Next(30, 80);
-            var dy = rnd.Next(30, 100);
-            var dz = rnd.Next(30, 80);
+            var dx = size.X;
+            var dy = size.Y;
+            var dz = size.Z;
             TGCVector3 p0 = new TGCVector3(0, 0, 0);
 
-            switch ((i * j) % 3)
+            switch ((i + j) % 2)
             {
                 default:
                 case 0:
-                    p0 = pt_ruta[i] + Binormal[i] * rnd.Next((int)dr, (int)dr + 300) + Normal[i] * rnd.Next(50, 250);
+                    p0 = pt_ruta[i] + Binormal[i] * (dr + 20);
                     break;
                 case 1:
-                    p0 = pt_ruta[i] + Binormal[i] * rnd.Next(-(int)dr - 300, -(int)dr) + Normal[i] * rnd.Next(50, 250);
-                    break;
-                case 2:
-                    p0 = pt_ruta[i] + Binormal[i] * rnd.Next(-(int)dr, (int)dr) + Normal[i] * rnd.Next(300, 700);
+                    p0 = pt_ruta[i] - Binormal[i] * (dr + 20);
                     break;
             }
 
+            TGCVector3[] Tangent = T.Tangent;
+
             pt[0] = p0;
-            pt[1] = p0 + new TGCVector3(dx, 0, 0);
-            pt[2] = p0 + new TGCVector3(dx, 0, dz);
-            pt[3] = p0 + new TGCVector3(0, 0, dz); 
-            pt[4] = p0 + new TGCVector3(0, dy, 0); 
-            pt[5] = pt[1] + new TGCVector3(0, dy, 0);
-            pt[6] = pt[2] + new TGCVector3(0, dy, 0);
-            pt[7] = pt[3] + new TGCVector3(0, dy, 0);
+            pt[1] = p0 + Binormal[i] * dx;
+            pt[2] = p0 + Binormal[i] * dx + Tangent[i] * dz;
+            pt[3] = p0 + Tangent[i] * dz;
+            pt[4] = p0 + Normal[i] * dy;
+            pt[5] = pt[1] + Normal[i] * dy;
+            pt[6] = pt[2] + Normal[i] * dy;
+            pt[7] = pt[3] + Normal[i] * dy;
+
+           
         }
 
         public override void SetTextures(Effect effect)
@@ -571,57 +648,164 @@ namespace TGC.Group.Model
             effect.SetValue("cube_color", TGCVector3.Vector3ToFloat4Array(color));
         }
 
-
     }
 
-    public class CBuildings : CCubos
-    {
-        public CBuildings()
-        {
-            cubosxpt = 10;
-            cant_v = 36 * cubosxpt;      // cantidad de vertices x item
-            tx_fname = "";
-            rnd = new Random();
-            transparente = false;
-        }
 
-        public static new CBuildings Create(int cant, int pinicio, int sep, CScene pT, TGCVector3 pcolor)
+    public class CLineas : CBaseCubo
+    {
+        public static new CLineas Create(int cant_cubos, int cant, int pinicio, int sep, CScene pT, TGCVector3 pcolor, TGCVector3 psize)
         {
-            CBuildings obj = new CBuildings();
-            obj.Init(cant, pinicio, sep, pT, pcolor);
+            CLineas obj = new CLineas();
+            obj.Init(cant_cubos, cant, pinicio, sep, pT, pcolor, psize);
+            obj.transparente = true;
             return obj;
         }
 
-
         public override void que_puntos(int i, int j, TGCVector3[] pt)
         {
-            var dx = rnd.Next(60, 100);
-            var dy = rnd.Next(100, 700);
-            var dz = rnd.Next(40, 100);
-            TGCVector3[] Tangent = T.Tangent;
+            var dx = size.X;
+            var dy = size.Y;
+            var dz = size.Z;
             TGCVector3 p0 = new TGCVector3(0, 0, 0);
 
+            float desf_x;
             switch ((i + j) % 2)
             {
                 default:
                 case 0:
-                    p0 = pt_ruta[i] + Binormal[i] * (dr + 60 + j * 40);
+                    desf_x = dr +  30;
                     break;
                 case 1:
-                    p0 = pt_ruta[i] - Binormal[i] * (dr + 60 + j * 40);
+                    desf_x = -dr - 30;
                     break;
             }
 
-            p0 = p0 - Normal[i] * 50 - Binormal[i] * dx * 0.5f;
+            TGCVector3[] Tangent = T.Tangent;
+
+            p0 = pt_ruta[i] - Normal[i] * dy + Binormal[i] * desf_x;
+
+            pt[0] = p0 ;
+            pt[1] = p0 + Binormal[i] * dx;
+            pt[2] = p0 + Binormal[i] * dx + Tangent[i] * dz;
+            pt[3] = p0 + Tangent[i] * dz;
+            pt[4] = p0 + Normal[i] * 2*dy + Binormal[i] * 20 * desf_x;
+            pt[5] = pt[1] + Normal[i] * 2 * dy + Binormal[i] * 20 * desf_x;
+            pt[6] = pt[2] + Normal[i] * 2 * dy + Binormal[i] * 20 * desf_x;
+            pt[7] = pt[3] + Normal[i] * 2 * dy + Binormal[i] * 20 * desf_x;
+
+
+        }
+
+        public override void SetTextures(Effect effect)
+        {
+            effect.Technique = "GlowBar";
+            //effect.Technique = "Buildings";
+            effect.SetValue("cube_color", TGCVector3.Vector3ToFloat4Array(color));
+        }
+
+    }
+
+
+    public class CBuildings : CBaseCubo
+    {
+        public IntPtr PCMBuffer = (IntPtr)0;
+        int cant_samples = 0;
+        public CBuildings(IntPtr wav_data, int p_cant_samples)
+        {
+            PCMBuffer = wav_data;
+            cant_samples = p_cant_samples;
+            tx_fname = "";
+            rnd = new Random();
+            transparente = true;
+        }
+
+        public static CBuildings Create(IntPtr wav_data, int p_cant_samples, int cant, int pinicio, int sep, CScene pT, TGCVector3 pcolor)
+        {
+            CBuildings obj = new CBuildings(wav_data, p_cant_samples);
+            obj.Init(10,cant, pinicio, sep, pT, pcolor,new TGCVector3(0,0,0));
+            return obj;
+        }
+
+
+        public unsafe override void que_puntos(int i, int j, TGCVector3[] pt)
+        {
+            int SAMPLE_RATE = 44100;
+            float s = (float)j / (float)cubosxpt;
+            float dist = T.Distance[i] * (1 - s) + T.Distance[i + 1] * s;
+            float time = dist / CShip.vel_lineal;
+            int index = (int)(time * SAMPLE_RATE) % cant_samples;
+            index -= (int)(0.6f*SAMPLE_RATE);
+            if (index < 0)
+                index = 0;
+
+            short* wav = (short*)(PCMBuffer);
+            var dx = 30;
+            var dy = wav[index] / 32768.0f * 400;
+            var dz = 15;
+            TGCVector3[] Tangent = T.Tangent;
+            TGCVector3 p0 = new TGCVector3(0, 0, 0);
+
+             switch ((i + j) % 2)
+             {
+                 default:
+                 case 0:
+                     p0 = pt_ruta[i] + Binormal[i] * (dr + 110 );
+                     break;
+                 case 1:
+                     p0 = pt_ruta[i] - Binormal[i] * (dr + 110 );
+                     break;
+             }
+
+
+            p0 = p0 + Tangent[i]* (j*10);
             pt[0] = p0;
             pt[1] = p0 + Binormal[i] * dx;
             pt[2] = p0 + Binormal[i] * dx + Tangent[i] * dz;
             pt[3] = p0 + Tangent[i] * dz;
             pt[4] = p0 + Normal[i] * dy;
-            pt[5] = pt[1] + Normal[i] * (dy + rnd.Next(0, 30));
-            pt[6] = pt[2] + Normal[i] * (dy + rnd.Next(0, 30));
-            pt[7] = pt[3] + Normal[i] * (dy + rnd.Next(0, 30));
+            pt[5] = pt[1] + Normal[i] * dy;
+            pt[6] = pt[2] + Normal[i] * dy;
+            pt[7] = pt[3] + Normal[i] * dy;
         }
+
+
+        public override void Render(Effect effect)
+        {
+            int pr = T.player.pos_en_ruta - 8;
+            int fov = 20;
+            // verifico si el objeto esta dentro del conjunto ptencialmente visible 
+            if (pr > fin)     // el objeto quedo atras en la ruta
+                return;
+            if (pr + fov < inicio)       // esta muy adelante, todavia no entro en campo visual
+                return;
+
+            var p = pr - inicio;            // posicion relativa
+            if (p < 0)
+                p = 0;
+
+            int start = cant_v * (int)(p / ds);
+            int end = cant_v * (int)((p + fov) / ds);
+            if (end >= start + totalVertices)
+                end = totalVertices + start;
+            int cant_vertices = end - start;
+            int cant_primitivas = cant_vertices / 3;
+
+            SetTextures(effect);
+            device.SetStreamSource(0, vb, 0);
+            device.VertexFormat = CustomVertex.PositionNormalTextured.Format;
+
+            int numPasses = effect.Begin(0);
+            for (var n = 0; n < numPasses; n++)
+            {
+                effect.BeginPass(n);
+                device.DrawPrimitives(PrimitiveType.TriangleList, start, cant_primitivas);
+                effect.EndPass();
+            }
+            effect.End();
+
+        }
+
+
 
         public override void SetTextures(Effect effect)
         {
@@ -641,7 +825,7 @@ namespace TGC.Group.Model
         {
             cant_v = 12 * quadsxpt;
             tx_fname = "";
-            transparente = false;
+            transparente = true;
         }
 
         public static new CPatchSideTrack Create(int cant, int pinicio, int sep, CScene pT)
@@ -654,38 +838,35 @@ namespace TGC.Group.Model
         public override void FillVertexBuffer(int t, CustomVertex.PositionNormalTextured[] data)
         {
             float r = 1.5F * dr;
-            float dp = 35;
-            float dh = 30;
+            float dp = 50;
+            float dh = 5;
 			var i = inicio + t;
-			for (var K = -1; K <= 1; K += 2)
+			for (var j = 0; j < 2*quadsxpt; ++j)
 			{
-				for (var j = 0; j < quadsxpt; ++j)
-				{
-					float dj = (dr + dp * j);
-					float dj1 = (dr + dp * (j + 1));
+				float dj = dp * (j- quadsxpt);
+				float dj1 = dj + dp;
 
-					var p0 = pt_ruta[i] - Binormal[i] * dj * K;
-					var p1 = pt_ruta[i] - Binormal[i] * dj1 * K;
-					var p2 = pt_ruta[i + 1] - Binormal[i + 1] * dj * K;
-					var p3 = pt_ruta[i + 1] - Binormal[i + 1] * dj1 * K;
+				var p0 = pt_ruta[i] - Binormal[i] * dj - Normal[i] * 300;
+				var p1 = pt_ruta[i] - Binormal[i] * dj1 - Normal[i] * 300;
+				var p2 = pt_ruta[i + 1] - Binormal[i + 1] * dj - Normal[i] * 300;
+				var p3 = pt_ruta[i + 1] - Binormal[i + 1] * dj1 - Normal[i] * 300;
 
-					p0 = p0 + Normal[i] * (noise(p0 * 0.01f) * dh * j - 20);
-					p1 = p1 + Normal[i] * (noise(p1 * 0.01f) * dh * (j + 1) - 20);
-					p2 = p2 + Normal[i] * (noise(p2 * 0.01f) * dh * j - 20);
-					p3 = p3 + Normal[i] * (noise(p3 * 0.01f) * dh * (j + 1) - 20);
+				p0 = p0 + Normal[i] * (noise(p0 * 0.01f) * dh * j - 20);
+				p1 = p1 + Normal[i] * (noise(p1 * 0.01f) * dh * (j + 1) - 20);
+				p2 = p2 + Normal[i] * (noise(p2 * 0.01f) * dh * j - 20);
+				p3 = p3 + Normal[i] * (noise(p3 * 0.01f) * dh * (j + 1) - 20);
 
-					var N = TGCVector3.Cross(p2 - p0, p3 - p0) * (-K);
-					N.Normalize();
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p2, N, 0, 1);
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
+				var N = TGCVector3.Cross(p2 - p0, p3 - p0) * (-1);
+				N.Normalize();
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p2, N, 0, 1);
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
 
-					N = TGCVector3.Cross(p3 - p0, p1 - p0) * (-K);
-					N.Normalize();
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
-					data[dataIdx++] = new CustomVertex.PositionNormalTextured(p1, N, 1, 0);
-				}
+				N = TGCVector3.Cross(p3 - p0, p1 - p0) * (-1);
+				N.Normalize();
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p0, N, 0, 0);
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p3, N, 1, 1);
+				data[dataIdx++] = new CustomVertex.PositionNormalTextured(p1, N, 1, 0);
 			}
         }
 
@@ -829,7 +1010,7 @@ namespace TGC.Group.Model
         const int MAX_POINTS = 5000;
         const int MAX_TRACKS = 100;
         const int max_pt = 250;
-        public float ancho_ruta = 200;
+        public float ancho_ruta = 120;
         public int fov = 250;   // cuantos puntos de la ruta puedo ver hacia adelante
 
         public int cant_ptos_ruta;
@@ -839,7 +1020,7 @@ namespace TGC.Group.Model
         public TGCVector3[] Normal = new TGCVector3[MAX_POINTS];
         public TGCVector3[] Tangent = new TGCVector3[MAX_POINTS];
         public TGCVector3[] Binormal = new TGCVector3[MAX_POINTS];
-        public float []peralte = new float[MAX_POINTS];
+        public float[] Distance = new float[MAX_POINTS];
         public float scaleXZ = 20;
         public float scaleY = 15;
 
@@ -847,20 +1028,41 @@ namespace TGC.Group.Model
         int cant_tracks;
         public string path_media;
 
-        public CSkyBox skybox;
-        public CShip player_one;
-        public CShip []PLAYERS;
-        public int cant_players;
+        public int[] sound_tracks;
+        public int cant_sound_tracks = 0;
+        public int pt_x_track = 5;        // cada cuantos pt_ruta hay un sound_track
 
-        public CScene(string mediaDir)
+        public CSkyBox skybox;
+        public CShip player;
+        public CSoundBlock bloques;
+
+        public Sprite sprite;
+        public Texture exploTexture;
+        public int cur_block_index;
+        public float timer_colision = 0;
+        public TGCVector3 curr_block_p0;
+        public TGCVector3 curr_block_p1;
+        public TGCVector3 curr_block_p2;
+        public TGCVector3 curr_block_p3;
+        public Line line;
+        public float time = 0;
+
+
+        public CScene(string mediaDir, IntPtr wav_data, int cant_samples)
         {
             path_media = mediaDir;
-            CrearRuta(mediaDir);
-            skybox = new CSkyBox("skybox2.jpg", this);
+            CrearRuta(mediaDir,wav_data, cant_samples);
+            //skybox = new CSkyBox("skybox1.jpg", this);        // alta calidad
+            skybox = new CSkyBox("skybox.jpg", this);           // baja calidad
+            sprite = new Sprite(D3DDevice.Instance.Device);
+            line = new Line(D3DDevice.Instance.Device);
+            exploTexture = TextureLoader.FromFile(D3DDevice.Instance.Device, path_media + "Texturas\\explosion.png");
+            bloques = new CSoundBlock(pt_x_track , this);
+
         }
 
 
-       public int rt_Spline(TGCVector3[] pt ,  TGCVector3  []P, int cant_p, float alfa)
+        public int rt_Spline(TGCVector3[] pt ,  TGCVector3  []P, int cant_p, float alfa)
         {
             int cant = 0;
             float fi = alfa != 0 ? (1 / alfa) : 1;
@@ -915,8 +1117,6 @@ namespace TGC.Group.Model
             dir.Normalize();
             TGCVector3 Q = new TGCVector3(0, 0, 0);
             TGCVector3 N = new TGCVector3(0, 1, 0);
-            int status = 0;
-            int step = 4;
             for (int i = 0; i < max_pt; ++i)
             {
 
@@ -927,54 +1127,21 @@ namespace TGC.Group.Model
                 TGCVector3 B = TGCVector3.Cross(dir, N);
                 B.Normalize();
 
+                Q = Q + dir * 500;
 
-                //alfa += (float)Math.PI * rnd.Next(-15, 15) / 180.0f;
-                switch (status)
+                if (i % 5 == 0)
                 {
-                    default:
-                        // linea recta  test
-                        Q = Q + dir * 500;
-                        break;
-
-                    case 0:
-                        // linea recta 
-                        --step;
-                        if (step == 0)
-                        {
-                            step = 5;
-                            status = 1;
-                        }
-                        Q = Q + dir * 500;
-                        break;
-                    case 1:
-                        {
-                            // curva en UP
-                            dir.TransformNormal(TGCMatrix.RotationAxis(B, 0.3f));
-                            --step;
-                            if (step == 0)
-                            {
-                                step = 40;
-                                status = 2;
-                            }
-                            Q = Q + dir * 300;
-                        }
-                        break;
-                    case 2:
-                        // linea recta 
-                        --step;
-                        if (step == 0)
-                        {
-                            step = 5;
-                            status = 0;
-                        }
-                        Q = Q + dir * 500;
-                        dir.TransformNormal(TGCMatrix.RotationAxis(N, (float)Math.PI * rnd.Next(-20, 20) / 180.0f));
-                        dir.TransformNormal(TGCMatrix.RotationAxis(B, (float)Math.PI * rnd.Next(-15, 15) / 180.0f));
-                        break;
-
+                    //dir.TransformNormal(TGCMatrix.RotationAxis(N, (float)Math.PI * rnd.Next(-20, 20) / 180.0f));
+                    //dir.TransformNormal(TGCMatrix.RotationAxis(B, (float)Math.PI * rnd.Next(-15, 15) / 180.0f));
+                    dir.TransformNormal(TGCMatrix.RotationAxis(N, (float)Math.PI * rnd.Next(-30, 30) / 180.0f));
+                    dir.TransformNormal(TGCMatrix.RotationAxis(B, (float)Math.PI * rnd.Next(-30, 30) / 180.0f));
                 }
+                /*                else
+                                if (i % 3 == 0)
+                                {
+                                    dir.TransformNormal(TGCMatrix.RotationAxis(N, (float)Math.PI * rnd.Next(-35, 35) / 180.0f));
+                                }*/
 
-              
                 // computo la siguiente normal
                 TGCVector3 BN = TGCVector3.Cross(dir, N);
                 BN.Normalize();
@@ -1000,41 +1167,121 @@ namespace TGC.Group.Model
 
                 Normal[i] = TGCVector3.Cross(Binormal[i] , Tangent[i]);
                 Normal[i].Normalize();
-
             }
+
+            // computo la distancia total recorrida
+            Distance[0] = 0;
+            for (int i = 1; i < cant_ptos_ruta; ++i)
+            {
+                Distance[i] = Distance[i-1] + (pt_ruta[i]-pt_ruta[i-1]).Length();
+            }
+
             --cant_ptos_ruta; // me aseguro que siempre exista el i+1
         }
 
-        public void CrearRuta(string mediaDir)
+        public unsafe void CrearRuta(string mediaDir , IntPtr wav_data , int cant_samples)
         {
             // Cargo la ruta
             load_pt_ruta();
 
-            // peralte
-            var rnd = new Random();
-            for (var i = 0; i < cant_ptos_ruta; ++i)
+            // creo los sound tracks 
+
+            int SAMPLE_RATE = 44100;
+            sound_tracks = new int[cant_samples / pt_x_track + 1];
+
+            short* wav = (short*)wav_data;
+            CFourier fft = new CFourier();
+            cant_sound_tracks = 0;
+
+            for (int i = 0; i < cant_ptos_ruta- pt_x_track; i += pt_x_track)
             {
-                peralte[i] = (float)Math.Sin((double)i * 0.05) * 50;
+
+                float time = Distance[i] / CShip.vel_lineal;
+                int index = (int)(time * SAMPLE_RATE) % cant_samples;
+                int samples_left = cant_samples - index - 1;
+                fft.ComplexFFT(wav + index, samples_left, 16384, 1);
+                int freq = fft.que_frecuencia();
+                sound_tracks[cant_sound_tracks] = fft.Ef > 0.1 ? freq : 0;
+                ++cant_sound_tracks;
+
+            }
+
+            // si en 2 o mas tracks seguidos esta aproximadamente el mismo pulso, los agrupo en uno solo
+            // con mayor duracion. Es una aproximacion muy basica a obtener el "ritmo". (peor es nada.)
+            int Q = sound_tracks[0];
+            for (int i = 1; i < cant_tracks; ++i)
+            {
+                if (Math.Abs(sound_tracks[i] - Q) <= 5)
+                    // agrupo este track con el pivote 
+                    sound_tracks[i] = 0;
+                else
+                    // reseteo el pivote
+                    Q = sound_tracks[i];
+
             }
 
 
             // Creo los tracks pp dichos
-            tracks[cant_tracks++] = CCubos.Create(300, 0, 1, this, new TGCVector3(1, 0.75f, 0.5f));
-            tracks[cant_tracks++] = CCubos.Create(300, 300, 1, this, new TGCVector3(0.25f, 0.75f, 1.0f));
-            tracks[cant_tracks++] = CBuildings.Create(100, 600, 5, this, new TGCVector3(0, 0.5f, 1));
+            // palos largos al costado tipo mojones
+            tracks[cant_tracks++] = CLineas.Create(2, cant_ptos_ruta / 10, 0, 10, this, new TGCVector3(1, 0.7f, 0.7f), new TGCVector3(40, 2000, 40));
+
+            tracks[cant_tracks++] = CGlowRing.Create(cant_ptos_ruta / 20, 0, 20, this);
+            // bloques que representan el WAV
+            tracks[cant_tracks++] = CBuildings.Create(wav_data, cant_samples, cant_ptos_ruta, 0, 1, this, new TGCVector3(0, 0.5f, 1));
 
             tracks[cant_tracks++] = CPiso.Create(cant_ptos_ruta, 0, 1, this);
 
-            tracks[cant_tracks++] = CCartel.Create(25, 50, 17, this);
-            tracks[cant_tracks++] = CPuente.Create(25, 50, 30, this);
-            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, true);
-            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, false);
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, true, 
+                    new TGCVector3(0, 0.5f, 1), new TGCVector3(0.1f, 4.0f, 5.0f));
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, false, 
+                    new TGCVector3(0, 0.5f, 1), new TGCVector3(0.1f, 4.0f, 5.0f));
 
-            tracks[cant_tracks++] = CTunelSideTrack.Create(400, 1200, 1, this, "", true);
-            tracks[cant_tracks++] = CPatchSideTrack.Create(500, 1600, 1, this);
-            tracks[cant_tracks++] = CTunelSideTrack.Create(400, 2100, 1, this, "tunel2.png", false);
-            tracks[cant_tracks++] = CTunelSideTrack.Create(400, 2500, 1, this, "tunel.png", false);
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, true,
+                    new TGCVector3(1, 0.5f, 0), new TGCVector3(0.2f, 2.0f, 3.0f));
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, false,
+                    new TGCVector3(1, 0.5f, 0), new TGCVector3(0.2f, 2.0f, 3.0f));
 
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, true,
+                    new TGCVector3(1, 0 , 0.5f), new TGCVector3(0.4f, 7.5f, 3.0f));
+            tracks[cant_tracks++] = CGuardRail.Create(cant_ptos_ruta, 0, 1, this, false,
+                    new TGCVector3(1, 0, 0.5f ), new TGCVector3(0.4f, 7.5f, 3.0f));
+
+
+
+        }
+
+        public void Update(float ElapsedTime)
+        {
+            time += ElapsedTime;
+            var device = D3DDevice.Instance.Device;
+            if (timer_colision == 0)
+            {
+                if (player.colisiona)
+                {
+                    // arranca la colision: computo la pos X 
+                    int p = player.pos_en_ruta;
+                    int index = p / pt_x_track;
+                    int freq = sound_tracks[index];
+                    TGCVector3 Eje_x = -Binormal[p];
+                    float dr2 = ancho_ruta / 2 - 27;
+                    float s = (freq - 100.0f) / 340.0f;  // 0..1
+                    float X = (2 * dr2) * s - dr2;
+                    float dx = 20;
+                    curr_block_p0 = pt_ruta[p] + Eje_x * (X - dx / 2);
+                    curr_block_p1 = curr_block_p0 + Eje_x * (dx);
+                    curr_block_p2 = curr_block_p1 + Normal[p] * 10;
+                    curr_block_p3 = curr_block_p0 + Normal[p] * 10;
+                    timer_colision += ElapsedTime;
+                    cur_block_index = index;
+                }
+            }
+            else
+            {
+                // explosion en curso
+                timer_colision += ElapsedTime;
+                if (timer_colision > 0.25f)
+                    timer_colision = 0;
+            }
         }
 
 
@@ -1042,31 +1289,114 @@ namespace TGC.Group.Model
         {
             var device = D3DDevice.Instance.Device;
 
-            // opacos
             effect.Technique = "DefaultTechnique";
             TgcShaders.Instance.setShaderMatrixIdentity(effect);
             device.RenderState.AlphaBlendEnable = false;
-            skybox.Render(effect);
 
+            if(!player.colisiona)
+                skybox.Render(effect);
+            
 
-            for (int i = 0; i < cant_tracks; ++i)
-                if(!tracks[i].transparente)
-                    tracks[i].Render(effect);
-
-            // Ahora los objetos transparentes guarda rail, y los carteles
+            // objetos transparentes 
             device.RenderState.AlphaBlendEnable = true;
+            device.RenderState.ZBufferEnable= false;
             for (int i = 0; i < cant_tracks; ++i)
                 if (tracks[i].transparente)
                     tracks[i].Render(effect);
+
+            // objetos opacos
+            device.RenderState.AlphaBlendEnable = false;
+            device.RenderState.ZBufferEnable = true;
+            for (int i = 0; i < cant_tracks; ++i)
+                if (!tracks[i].transparente)
+                    tracks[i].Render(effect);
+
+            // bloques
+            bloques.Render(effect);
+
+            // sprites
+            device.RenderState.AlphaBlendEnable = true;
+            device.RenderState.ZBufferEnable = false;
+            if (timer_colision > 0)
+            {
+                float W = D3DDevice.Instance.Width ;
+                float H = D3DDevice.Instance.Height;
+
+                TGCVector3 p0 = curr_block_p0 * (1);
+                TGCVector3 p1 = curr_block_p1 * (1);
+                TGCVector3 p2 = curr_block_p2 * (1);
+                TGCVector3 p3 = curr_block_p3 * (1);
+                TGCVector3 cg = (p0 + p1 + p2 + p3)*0.25f;
+                p0.Project(device.Viewport, TGCMatrix.FromMatrix(device.Transform.Projection),
+                    TGCMatrix.FromMatrix(device.Transform.View), TGCMatrix.FromMatrix(device.Transform.World));
+                p1.Project(device.Viewport, TGCMatrix.FromMatrix(device.Transform.Projection),
+                    TGCMatrix.FromMatrix(device.Transform.View), TGCMatrix.FromMatrix(device.Transform.World));
+                p2.Project(device.Viewport, TGCMatrix.FromMatrix(device.Transform.Projection),
+                    TGCMatrix.FromMatrix(device.Transform.View), TGCMatrix.FromMatrix(device.Transform.World));
+                p3.Project(device.Viewport, TGCMatrix.FromMatrix(device.Transform.Projection),
+                    TGCMatrix.FromMatrix(device.Transform.View), TGCMatrix.FromMatrix(device.Transform.World));
+                cg.Project(device.Viewport, TGCMatrix.FromMatrix(device.Transform.Projection),
+                    TGCMatrix.FromMatrix(device.Transform.View), TGCMatrix.FromMatrix(device.Transform.World));
+
+
+                if (cg.Z > 0)
+                {
+                    sprite.Begin(SpriteFlags.AlphaBlend);
+                    float escala = timer_colision * 6.0f;
+                    float px = 250 * escala;
+                    float py = 250 * escala;
+
+                    float s = 1 - timer_colision / 2.0f;
+                    sprite.Transform = TGCMatrix.Transformation2D(
+                        new TGCVector2(0, 0), 0, new TGCVector2(1, 1) * escala, new TGCVector2(px, py), timer_colision * 3.0f, new TGCVector2(cg.X - px, cg.Y - py));
+                    sprite.Draw(exploTexture, Rectangle.Empty, TGCVector3.Empty, new TGCVector3(0, 0, 0), Color.FromArgb((int)(255 * s), 255, 255, 255));
+
+                    TGCVector2[] pt = new TGCVector2[5];
+                    pt[0].X = p0.X;
+                    pt[0].Y = p0.Y;
+                    pt[1].X = p1.X;
+                    pt[1].Y = p1.Y;
+                    pt[2].X = p2.X;
+                    pt[2].Y = p2.Y;
+                    pt[3].X = p3.X;
+                    pt[3].Y = p3.Y;
+                    pt[4] = pt[0];
+                    line.Draw(TGCVector2.ToVector2Array(pt), Color.FromArgb(255, 255, 0, 255));
+                    sprite.End();
+                }
+
+            }
         }
 
 
-        
+        public int que_pos(float time,float vel_lineal , out float t)
+        {
+            // primero determino cuanto va a recorrer linealmente
+            float ds = vel_lineal * time;
+            // busco en segmento estoy
+            int i=0;
+            while (i < cant_ptos_ruta && Distance[i] < ds)
+                ++i;
+
+            // retrocedo uno
+            i--;
+            // ahora estoy entre el punto i y el i+1, es decir se cumple que 
+            // Di <= ds <= Di+1
+            t = (ds - Distance[i]) / (Distance[i+1] - Distance[i]);
+
+            return i;
+
+        }
 
         public void dispose()
         {
             for (var i = 0; i < cant_tracks; ++i)
                 tracks[i].Dispose();
+
+            sprite.Dispose();
+            line.Dispose();
+            exploTexture.Dispose();
+
         }
 
     }
