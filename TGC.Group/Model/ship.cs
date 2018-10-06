@@ -151,21 +151,9 @@ namespace TGC.Group.Model
 
             pos_en_ruta = S.que_pos(time, vel_lineal, out pos_t);
 
-            // interpolo segun pos_t 
-            posC = TGCVector3.Lerp(S.pt_ruta[pos_en_ruta], S.pt_ruta[pos_en_ruta + 1], pos_t);
-            dir = TGCVector3.Lerp( S.Tangent[pos_en_ruta], S.Tangent[pos_en_ruta+1] , pos_t);
-            normal = TGCVector3.Lerp(S.Normal[pos_en_ruta], S.Normal[pos_en_ruta + 1], pos_t);
-            binormal = TGCVector3.Lerp(S.Binormal[pos_en_ruta], S.Binormal[pos_en_ruta + 1], pos_t);
-            // elevo un poco la nave 
-            posC += normal * desfH;
-            pos = posC + binormal * X;
-
-            // actualizo la posicion de la nave
-            mesh.Transform = CalcularMatriz(pos, car_Scale, -dir, normal);
-
             // colisiones con los sound tracks de la escena
             colisiona = false;
-            if (pos_en_ruta%S.pt_x_track==0)
+            if (pos_en_ruta % S.pt_x_track == 0)
             {
                 int index = pos_en_ruta / S.pt_x_track;
                 int freq_wav = S.sound_tracks[index];
@@ -178,6 +166,19 @@ namespace TGC.Group.Model
                 }
                 score_total++;
             }
+
+            // interpolo segun pos_t 
+            posC = TGCVector3.Lerp(S.pt_ruta[pos_en_ruta], S.pt_ruta[pos_en_ruta + 1], pos_t);
+            dir = TGCVector3.Lerp( S.Tangent[pos_en_ruta], S.Tangent[pos_en_ruta+1] , pos_t);
+            normal = TGCVector3.Lerp(S.Normal[pos_en_ruta], S.Normal[pos_en_ruta + 1], pos_t);
+            binormal = TGCVector3.Lerp(S.Binormal[pos_en_ruta], S.Binormal[pos_en_ruta + 1], pos_t);
+            // elevo un poco la nave 
+            posC += normal *  desfH;
+            pos = posC + binormal * X;
+
+            // actualizo la posicion de la nave
+            mesh.Transform = CalcularMatriz(pos, car_Scale, -dir, normal);
+
 
         }
 

@@ -358,6 +358,7 @@ namespace TGC.Group.Model
     
     public class CGlowRing : CBaseTrack
     {
+
         public CGlowRing()
         {
             cant_v = 6;      // cantidad de vertices x item
@@ -1029,6 +1030,7 @@ namespace TGC.Group.Model
         public string path_media;
 
         public int[] sound_tracks;
+        public bool[] beats;
         public int cant_sound_tracks = 0;
         public int pt_x_track = 5;        // cada cuantos pt_ruta hay un sound_track
 
@@ -1188,6 +1190,8 @@ namespace TGC.Group.Model
 
             int SAMPLE_RATE = 44100;
             sound_tracks = new int[cant_samples / pt_x_track + 1];
+            beats = new bool[cant_samples / pt_x_track + 1];
+            float []energia = new float[cant_samples / pt_x_track + 1];
 
             short* wav = (short*)wav_data;
             CFourier fft = new CFourier();
@@ -1202,6 +1206,10 @@ namespace TGC.Group.Model
                 fft.ComplexFFT(wav + index, samples_left, 16384, 1);
                 int freq = fft.que_frecuencia();
                 sound_tracks[cant_sound_tracks] = fft.Ef > 0.1 ? freq : 0;
+                // sumo la energia de las frecuencias bajas
+                energia[cant_sound_tracks] = fft.E[0];
+                beats[cant_sound_tracks] = false;
+
                 ++cant_sound_tracks;
 
             }
@@ -1209,7 +1217,7 @@ namespace TGC.Group.Model
             // si en 2 o mas tracks seguidos esta aproximadamente el mismo pulso, los agrupo en uno solo
             // con mayor duracion. Es una aproximacion muy basica a obtener el "ritmo". (peor es nada.)
             int Q = sound_tracks[0];
-            for (int i = 1; i < cant_tracks; ++i)
+            for (int i = 1; i < cant_sound_tracks; ++i)
             {
                 if (Math.Abs(sound_tracks[i] - Q) <= 5)
                     // agrupo este track con el pivote 
@@ -1218,6 +1226,16 @@ namespace TGC.Group.Model
                     // reseteo el pivote
                     Q = sound_tracks[i];
 
+            }
+
+            int cant_beats = 0;
+            for (int i = 5; i < cant_sound_tracks - 5; ++i)
+            {
+                if (energia[i] > energia[i - 1] && energia[i] > energia[i + 1])
+                {
+                    beats[i] = true;
+                    ++cant_beats;
+                }
             }
 
 

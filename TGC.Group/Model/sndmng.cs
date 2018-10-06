@@ -646,6 +646,10 @@ namespace TGC.Group
         public int freq_inf, freq_sup;
         public int i_inf , i_sup;
 
+        // analisis del espectro de frecuencia por bandas
+        public int cant_bandas = 5;
+        public float[]E = new float[10];			// max 10 bandas
+
 
         public CFourier()
         {
@@ -813,7 +817,21 @@ namespace TGC.Group
             Eff = vector[2 * ff];
             Ef = vector[2 * ff] / M;
 
+
+            // analisis por bandas
+            int di = 100;
+            for (j = 0; j < cant_bandas; ++j)
+            {
+                float tot = 0;
+                for (i = 0; i < di; ++i)
+                {
+                    int k = i + j * di;
+                    float ei = vector[2 * k] / M;
+                    tot += ei / (float)di;
+                }
+                E[j] = tot;
+            }
+        }
     }
-}
 
 }

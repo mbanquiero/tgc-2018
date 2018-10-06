@@ -93,6 +93,7 @@ namespace TGC.Group.Model
         float timer_intro = 0;
 
         public bool motion_blur = true;
+        public bool beat = false;
 
 
         /// <summary>
@@ -343,12 +344,13 @@ namespace TGC.Group.Model
                         // actualizo la escena
                         ESCENA.Update(ElapsedTime);
 
+                        int index = SHIP.pos_en_ruta / ESCENA.pt_x_track;
+                        beat = ESCENA.beats[index];
                         if (SHIP.colisiona)
                         {
 
                             if (sound_ready)
                             {
-                                int index = SHIP.pos_en_ruta / ESCENA.pt_x_track;
                                 int freq_wav = ESCENA.sound_tracks[index];
                                 sound_out.Play(freq_wav, 500, 0.5f);
                                 sound_ready = false;
@@ -358,6 +360,9 @@ namespace TGC.Group.Model
                         {
                             sound_ready = true;
                         }
+
+                        
+
                     }
                     break;
             }
@@ -467,6 +472,7 @@ namespace TGC.Group.Model
             device.DepthStencilSurface = g_pDepthStencil;
 
 
+
             device.Clear(ClearFlags.Target | ClearFlags.ZBuffer, SHIP.colisiona ? Color.Yellow : Color.Black, 1.0f, 0);
             device.BeginScene();
             effect.SetValue("eyePosition", TGCVector3.Vector3ToFloat4Array(Camara.Position));
@@ -528,7 +534,7 @@ namespace TGC.Group.Model
             device.RenderState.ZBufferEnable = false;
             device.RenderState.AlphaBlendEnable= true;
 
-            FillRect(0, 0, 2000, 50, Color.FromArgb(128, 0, 0, 0));
+            FillRect(0, 0, 2000, 50, beat ? Color.FromArgb(164, 255, 0, 0) : Color.FromArgb(128, 0, 0, 0));
 
             FillText(30, 10, sound.wav_name, Color.White);
             if (SHIP.score_total!=0)
@@ -547,6 +553,7 @@ namespace TGC.Group.Model
             }
 
             FillText(50, screen_dy - 30, "FPS:" + Math.Round(fps), Color.Yellow);
+
             device.RenderState.ZBufferEnable = ant_zenable;
 
         }
